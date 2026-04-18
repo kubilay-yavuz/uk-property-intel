@@ -1,16 +1,41 @@
-"""Registry of known UK councils running Idox Public Access.
+"""Public reference registry of UK councils running Idox Public Access.
 
-The registry is deliberately small at first — it seeds the aggregator with
-a handful of confirmed councils and is intended to grow as more are
-verified. Each entry encodes whether the council publishes an ArcGIS
-FeatureServer (observed on Apr 2026):
+This module deliberately ships only two councils — one per transport
+— as canonical *reference configurations* for the open-source library:
 
-* Lambeth, Barnet — public ArcGIS (``server/rest/services/PALIVE/...``)
-* Westminster, Manchester, Southwark, Leeds — ArcGIS blocked externally;
-  use HTML transport
+* **Lambeth** — ArcGIS FeatureServer at
+  ``planning.lambeth.gov.uk/server/rest/services/PALIVE/LIVEUniformPA_Planning/FeatureServer``.
+  Exercises the fast path (SQL-style filters, pagination, geometry).
+* **Westminster** — HTML-only (no public FeatureServer). Exercises the
+  slow fallback path (CSRF-aware form POST + simple-search parse).
 
-New councils can be registered at runtime by constructing a
-:class:`CouncilConfig` and dropping it into :data:`KNOWN_COUNCILS`.
+Together those two cover every code path in the public
+:class:`ArcGISPlanningClient` and :class:`HTMLPlanningClient`. Smoke
+probes, fixture tests, and the public agent tool all target this
+reference set, so the library ships with a working end-to-end demo
+out of the box.
+
+The **full** curated registry of verified UK councils — plus the
+ongoing maintenance of URL layouts, ArcGIS availability flips, and
+HTML form variants — lives in the private
+``uk-property-apify-shared`` package and powers the hosted A5
+``planning-aggregator`` Apify actor. That split is deliberate: the
+transport code, parsers, and :class:`CouncilConfig` model are open
+(so users can hand-register any council they want at runtime), but
+the verified production registry is the ongoing-work product of
+the paid service.
+
+Users who only need one or two additional councils can drop a
+:class:`CouncilConfig` into their own dict at runtime — the shape is
+public:
+
+    from uk_property_apis.idox import CouncilConfig
+
+    my_council = CouncilConfig(
+        slug="camden",
+        name="Camden",
+        public_access_base_url="https://accountforms.camden.gov.uk",
+    )
 """
 
 from __future__ import annotations
@@ -38,37 +63,18 @@ def _council(
 KNOWN_COUNCILS: dict[str, CouncilConfig] = {
     c.slug: c
     for c in (
+        # Reference ArcGIS council — canonical fast-path example.
         _council(
             "lambeth",
             "Lambeth",
             "planning.lambeth.gov.uk",
             arcgis_base_url="https://planning.lambeth.gov.uk/server",
         ),
-        _council(
-            "barnet",
-            "Barnet",
-            "publicaccess.barnet.gov.uk",
-            arcgis_base_url="https://publicaccess.barnet.gov.uk/server",
-        ),
+        # Reference HTML-only council — canonical fallback-path example.
         _council(
             "westminster",
             "Westminster",
             "idoxpa.westminster.gov.uk",
-        ),
-        _council(
-            "manchester",
-            "Manchester",
-            "pa.manchester.gov.uk",
-        ),
-        _council(
-            "southwark",
-            "Southwark",
-            "planning.southwark.gov.uk",
-        ),
-        _council(
-            "leeds",
-            "Leeds",
-            "publicaccess.leeds.gov.uk",
         ),
     )
 }
@@ -87,7 +93,7 @@ def get_council(slug: str) -> CouncilConfig:
 
 
 def arcgis_enabled_councils() -> Iterable[CouncilConfig]:
-    """Yield the councils that publish a reachable ArcGIS FeatureServer."""
+    """Yield the reference councils that publish a reachable ArcGIS FeatureServer."""
 
     return (c for c in KNOWN_COUNCILS.values() if c.arcgis_base_url is not None)
 

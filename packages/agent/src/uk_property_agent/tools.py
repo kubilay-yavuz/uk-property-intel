@@ -421,6 +421,22 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
         property_type: str | None = None,
         years_back: int = 3,
     ) -> dict[str, Any]:
+        from uk_property_agent.apify_mode import (
+            maybe_delegate_estimate_property_value,
+        )
+
+        # When the hosted ``uk-avm`` actor is reachable, prefer it — it
+        # runs the richer hedonic / quantile / GBM ladder with HPI and
+        # neighbourhood enrichment. The local path (below) is a pure
+        # median-baseline fallback that ships with the OSS agent.
+        delegated = await maybe_delegate_estimate_property_value(
+            postcode=postcode,
+            property_type=property_type,
+            years_back=years_back,
+        )
+        if delegated is not None:
+            return delegated
+
         cutoff = (datetime.now(tz=UTC).date() - timedelta(days=365 * years_back)).isoformat()
         client = ctx.land_registry_factory()
         async with client:

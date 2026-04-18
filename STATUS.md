@@ -9,7 +9,7 @@ packages here.
 | Metric | Value |
 |---|---|
 | Packages shipped | 7 (`scrapers`, `listings`, `apis`, `apify_client`, `geo`, `avm`, `agent`) |
-| Tests (mocked) | **647 green** across `packages/` |
+| Tests (mocked) | **823 green** across `packages/` |
 | Live smoke probes | 15 green (incl. `idox_arcgis_lambeth` + `idox_html_westminster`), 2 credential-skip, 0 fail |
 
 ---
@@ -70,24 +70,34 @@ Status: **DONE**. This is the linchpin of the dual-mode funnel: MCPs + agent too
 - Haversine distance
 - Overpass client (thin wrapper around `packages/apis`'s Overpass) for amenity-at-distance queries
 - Postcode-to-coord convenience (via `packages/apis` Postcodes.io)
+- **`OverpassAmenitySource`** (new 2026-04-18) — concrete adapter satisfying `uk_property_avm.AmenityDensitySource`. Aggregates `OverpassClient.amenities_near(...)` hits into a `{category_value: count}` mapping keyed by `AmenityCategory.value`, with zero-counts for configured-but-missing categories so the output schema stays stable. Owns-or-borrows an `OverpassClient` (closes the one it created, shares the one passed in). Wire into `NeighbourhoodFeatureExtractor(amenity_source=OverpassAmenitySource(...))` to close the last `None`-typed slot in the AVM v3 feature extractor.
 
-Status: **v1 DONE**. v2 pending — OSRM/OTP isochrones, H3 grid, polygons (Shapely).
+Status: **v1 DONE** + **v3-polish amenity adapter shipped (2026-04-18)**. v2 pending — OSRM/OTP isochrones, H3 grid, polygons (Shapely).
 
 ### `packages/avm` — `uk-property-avm`
-Four composable modules (Phase C MVP shipped 2026-04-18):
+Eight composable modules (Phase C MVP shipped 2026-04-18; v3 ships same day):
 
 | Module | Role | Tests |
 |---|---|---|
 | `baseline.py` | Rolling-median tiered estimate (postcode+type → postcode → area+type → area → national). Pure function, no fit step. | 14 |
 | `join.py` | PPD + EPC in-memory DuckDB join on normalised `(postcode, paon, street)` key; time-nearest EPC lodgement selection; `prefer_before_sale` / `postcode_fallback` tunables. Produces `EnrichedComparable` rows with `floor_area_sqm` / `energy_rating` / `built_form` / `construction_age_band` + `match_quality` provenance. | 45 |
-| `hedonic.py` | Log-price linear regression: `log(price) ~ log(floor_area) + property_type_OHE + tenure_OHE + postcode_area_OHE + age_band_OHE + energy_efficiency_centred`. IQR-residual bands. Falls back to median baseline when pool is thin (<20 rows). Canonical `HedonicModel` class + one-shot `estimate_value_hedonic(target, comparables)`. | 27 |
+| `hedonic.py` | Log-price linear regression: `log(price) ~ log(floor_area) + property_type_OHE + tenure_OHE + postcode_area_OHE + age_band_OHE + energy_efficiency_centred`. IQR-residual bands. Falls back to median baseline when pool is thin (<20 rows). Canonical `HedonicModel` class + one-shot `estimate_value_hedonic(target, comparables)`. Exports `_design_row()` / `_build_training_frame()` as shared feature-engineering helpers the v3 quantile + GBM variants reuse. | 27 |
 | `eval.py` | Time-based train/test split (`time_based_split(rows, holdout_months=6)`), model-agnostic `evaluate_model()` harness reporting median APE / mean APE / median £-error / coverage + per-(postcode_area × property_type) segment breakdown. Pydantic `EvalReport` + Markdown renderer. | 13 |
+| `hpi.py` (v3 + v3-polish) | UK House Price Index adjuster. `HPIAdjuster(series)` + bundled quarterly snapshot (~85 points, 2005-2026, rebased 2015=100) + three loaders — `.from_csv()` / `.from_mapping()` for simple two-column inputs, and **`.from_ons_csv()`** (2026-04-18) for the official ONS UK HPI full-file CSV: filters on `RegionName` (or any column like `AreaCode`) to pick between the UK all-property series, regional aggregates (London / North East / …), or local authorities; supports `IndexSA` and per-type index columns (`IndexDetached`, `IndexFlat`, …) via an `index_col` kwarg; date normaliser handles the three shapes ONS has used (`YYYY-MM-DD`, `YYYY-MM`, `DD/MM/YYYY`). Also ships **`list_ons_regions(path)`** as a discoverability helper for region labels. `.adjust(price, from_date, to_date=None)` does most-recent-on-or-before lookups via binary search; out-of-range raises. Bulk helpers `adjust_comparable_prices(rows, adjuster, to_date=...)` + `adjust_enriched_prices(...)` return HPI-adjusted copies of a row iterable; unparseable / out-of-range rows pass through unchanged (downstream models never see NaNs). | 78 |
+| `quantile.py` (v3) | Quantile hedonic. `QuantileHedonicModel(lower=0.1, median=0.5, upper=0.9)` fits three `sklearn.linear_model.QuantileRegressor` models on the shared design matrix from `hedonic.py`. Asymmetric bands from the tail quantiles, not symmetric IQR residuals. Degradation ladder: quantile → mean hedonic → rolling-median baseline; `methodology` tags which tier fired. One-shot `estimate_value_quantile_hedonic(...)`. | 17 |
+| `gbm.py` (v3 + v3-polish) | Gradient-boosted hedonic. `GBMHedonicModel` fits three `SklearnQuantileRegressor`-compatible trees (default `sklearn.ensemble.HistGradientBoostingRegressor(loss='quantile')`) with monotonic constraints on `log_floor_area` + `energy_efficiency_c`. Defaults: `max_iter=150`, `learning_rate=0.05`, `max_depth=6`, `min_samples_leaf=10`, `l2_regularization=0.1`. `regressor_factory` injection point is typed against a new `@runtime_checkable` **`SklearnQuantileRegressor` Protocol** (two-method minimum: `.fit(X, y)` + `.predict(X) → np.ndarray`), so any sklearn-compatible quantile regressor slots in. **LightGBM backend** (2026-04-18, v3-polish): **`make_lightgbm_regressor_factory(...)`** returns a `RegressorFactory` that lazy-imports `lightgbm.LGBMRegressor` at fit time — **no top-level dep added** to `uk-property-avm`, raises a precise `ImportError` if `lightgbm` isn't installed. Forwards `quantile` → `alpha`, `monotonic_cst.tolist()` → `monotone_constraints`, plus the six hyperparameters that overlap with the sklearn default (learning rate, max depth, leaves, L2, min-samples-in-leaf, random state). Same three-step fallback ladder. One-shot `estimate_value_gbm_hedonic(...)`. | 32 |
+| `features.py` (v3) | `NeighbourhoodFeatureExtractor` composes async-callable `PostcodeGeocoder` + `CrimeStatsSource` + `FloodWarningSource` + `AmenityDensitySource` protocols so `uk-property-avm` stays free of `uk_property_apis` deps (the library defines the interface; consumers wire production sources). Returns a `NeighbourhoodFeatures` Pydantic model with crimes-by-category (trailing 12mo) + violent / burglary subsets + active flood warnings + nearest-station haversine + `stations_within_1km` + amenity-density dict. Bundled `_DEFAULT_STATIONS` dataset (~60 major UK rail stations) with `stations=` override for production coverage. Upstream failures (geocode / crime / flood / amenity) are caught and surfaced as `None` fields — a missing neighbourhood signal never breaks a valuation run. | 24 |
 
-Public surface (re-exported at package root): `estimate_value`, `comparables_from_ppd`, `enrich_comparables`, `JoinConfig`, `HedonicModel`, `HedonicTarget`, `estimate_value_hedonic`, `time_based_split`, `evaluate_model`, `format_report_markdown`, plus all Pydantic models (`Comparable`, `EnrichedComparable`, `ValuationEstimate`, `EvalReport`, `EvalSegment`).
+Public surface (re-exported at package root, **44 symbols total** — up from 41 at v3 close): `estimate_value`, `comparables_from_ppd`, `enrich_comparables`, `JoinConfig`, `HedonicModel`, `HedonicTarget`, `estimate_value_hedonic`, `time_based_split`, `evaluate_model`, `format_report_markdown`, `HPIAdjuster`, `adjust_comparable_prices`, `adjust_enriched_prices`, `parse_month_key`, **`list_ons_regions`** (new 2026-04-18), `QuantileHedonicModel`, `estimate_value_quantile_hedonic`, `GBMHedonicModel`, `estimate_value_gbm_hedonic`, **`RegressorFactory`** (new), **`SklearnQuantileRegressor`** (new), **`make_lightgbm_regressor_factory`** (new), `NeighbourhoodFeatures`, `NeighbourhoodFeatureExtractor`, `Station`, `haversine_km`, plus all Pydantic models (`Comparable`, `EnrichedComparable`, `ValuationEstimate`, `EvalReport`, `EvalSegment`) and protocols (`PostcodeGeocoder`, `CrimeStatsSource`, `FloodWarningSource`, `AmenityDensitySource`).
 
-Dependencies: `pydantic>=2.9`, `numpy>=2.1`, `pandas>=2.2`, `scikit-learn>=1.5`, `duckdb>=1.1`.
+Dependencies unchanged: `pydantic>=2.9`, `numpy>=2.1`, `pandas>=2.2`, `scikit-learn>=1.5`, `duckdb>=1.1`. v3 added zero new top-level deps, and v3-polish adds zero too — `HistGradientBoostingRegressor` and `QuantileRegressor` are both in scikit-learn, LightGBM is a lazy opt-in via `make_lightgbm_regressor_factory()`, ONS CSV parsing is stdlib-only, and `OverpassAmenitySource` lives in `packages/geo` so the `httpx` dep stays out of `uk-property-avm`.
 
-Status: **Phase C MVP DONE**. Pending: quantile regression for tighter asymmetric bands, XGBoost / LightGBM with monotonic constraints on floor area, HPI-adjusted comparables, distance-to-station / school quality / crime score as features, and A10 `uk-avm` actor wrapper.
+Status: **Phase C MVP + v3 + v3-polish DONE** (263 tests total — +49 from v3 close at 214: +23 ONS HPI + 13 LightGBM factory + 13 GBM protocol/integration; +15 `OverpassAmenitySource` tests live in `packages/geo`). Library-tier now complete on the three v3 polish fronts:
+- [x] **Regional HPI series** — `HPIAdjuster.from_ons_csv()` reads the official ONS UK HPI full-file CSV, handles three date formats, filters on `RegionName`/`AreaCode`, supports `IndexSA` and per-property-type index columns; `list_ons_regions()` helper lists discoverable regions. (2026-04-18)
+- [x] **LightGBM alternate `regressor_factory` backend** — `make_lightgbm_regressor_factory(...)` with lazy `lightgbm` import; any sklearn-compatible quantile regressor conforming to the new `SklearnQuantileRegressor` Protocol slots in. (2026-04-18)
+- [x] **Concrete `AmenityDensitySource`** — `uk_property_geo.OverpassAmenitySource` ships in `packages/geo` (see that package above). (2026-04-18)
+
+Consumer-tier: **A10 `uk-avm` actor dispatcher DONE on 2026-04-18** — `method` + `hpiToDate` + `includeNeighbourhood` knobs now thread through the hosted actor, and `packages/agent`'s `estimate_property_value` tool delegates to it when `APIFY_API_TOKEN` is set. A10 can opt into regional HPI / LightGBM / Overpass amenities via its existing `ClientFactories` DI seam as a one-line override when we want the paid path to adopt the new adapters.
 
 ### `packages/agent` — `uk-property-agent`
 - LangGraph `StateGraph` with a tool-using ReAct node + response node
@@ -100,12 +110,15 @@ Status: **Phase C MVP DONE**. Pending: quantile regression for tighter asymmetri
   - Planning: `list_planning_councils`, `search_planning_applications` (ArcGIS preferred / HTML fallback, `mode='recent'|'search'`), `lookup_planning_application`
   - Valuation: `estimate_property_value` (AVM)
 - `ToolContext` DI pattern so tests can inject mocked clients — default crawler factory is `SimpleCrawler.from_env()` from `uk-property-listings`, plus `arcgis_planning_factory` / `html_planning_factory` for per-council Idox injection
-- **Dual-mode delegation** (2026-04-18): `search_planning_applications` and `landlord_network_for_company` now transparently delegate to hosted A5 `planning-aggregator` / A7 `landlord-network` actors when `APIFY_API_TOKEN` is set, falling back to local clients otherwise. Rehydration routes remote dataset rows through `PlanningApplication` / `ApplicationDetail` / `LandlordGraph` Pydantic models for byte-for-byte identical tool outputs on both paths.
+- **Dual-mode delegation** (2026-04-18): three tools now transparently delegate to hosted Apify actors when `APIFY_API_TOKEN` is set, falling back to local clients otherwise. The paid path rehydrates remote dataset rows through Pydantic models for byte-for-byte identical tool outputs.
+  - `search_planning_applications` → A5 `planning-aggregator` (full private council registry; slugs unknown to the public seed still succeed).
+  - `landlord_network_for_company` → A7 `landlord-network` (actor owns the BFS loop + CH rate-limit handling).
+  - `estimate_property_value` → A10 `uk-avm` (hedonic / quantile / GBM / median ladder, HPI adjustment against the private ~85-point series, neighbourhood enrichment against the private station list). Extra fields — `method`, `hpi_to_date`, `neighbourhood` — land in the delegated output so callers can tell the paid path apart from the local median fallback.
 - CLI: `property-agent "Tell me about CB1 2JW"`
 - Supports Anthropic (default), Gemini, OpenAI via LangChain provider map
-- Tests: 61 (34 baseline + 7 for the 3 new planning tools + 20 new `test_agent_apify_mode.py` for delegation paths)
+- Tests: **73** (34 baseline + 7 planning tool + 32 `test_agent_apify_mode.py` covering all three delegation paths + local fallbacks)
 
-Status: **ALPHA**. Core flow works with 20 tools + dual-mode delegation on the two paid-tier-worthy ones. Pending: routing/isochrone tool (after geo v2), prompt caching, structured final output (Pydantic dossier).
+Status: **ALPHA**. Core flow works with 20 tools + dual-mode delegation on all three paid-tier-worthy ones. Pending: routing/isochrone tool (after geo v2), prompt caching, structured final output (Pydantic dossier).
 
 ---
 
@@ -172,7 +185,9 @@ code paths production would. Outputs `[OK]` / `[FAIL]` per probe.
 - [x] `packages/avm`: baseline comparables valuation + `comparables_from_ppd` + 14 tests (2026-04-18)
 - [x] `packages/agent`: Companies House tools (5), AVM tool (1), listings search tools (3), planning trio (3), landlord graph (1), dual-mode delegation on planning + landlord (2026-04-18)
 - [x] `packages/avm` Phase C MVP: DuckDB PPD+EPC join + log-price hedonic + held-out eval harness, +85 tests (2026-04-18)
-- [ ] `packages/avm` v3: quantile regression + gradient-boosted trees + HPI-adjusted comparables + neighbourhood features (distance-to-station, schools, crime)
+- [x] `packages/avm` v3: `hpi.py` + `quantile.py` + `gbm.py` + `features.py`, +115 tests (2026-04-18)
+- [x] `packages/avm` v3 → A10 wiring: `method` / `hpiToDate` / `includeNeighbourhood` dispatcher in the `uk-avm` actor + `packages/agent` `estimate_property_value` dual-mode delegation (2026-04-18)
+- [x] `packages/avm` v3 polish: regional HPI series loader (`from_ons_csv` + `list_ons_regions`), LightGBM `regressor_factory` (`make_lightgbm_regressor_factory` + `SklearnQuantileRegressor` Protocol), concrete `AmenityDensitySource` backed by `packages/geo` Overpass client (`OverpassAmenitySource`) — all three swap-in only, no A10 actor changes required (2026-04-18)
 - [ ] `packages/geo` v2: OSRM / OTP isochrones, H3 grid, Shapely polygons
 - [ ] `packages/agent`: isochrone tool (after geo v2 ships)
 - [ ] `packages/agent`: prompt caching, multi-provider routing

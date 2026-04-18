@@ -25,6 +25,8 @@ class TestKnownActorSlugs:
             "epc-ct-ppd-unified",
             "planning-aggregator",
             "landlord-network",
+            "uk-tenders",
+            "uk-avm",
         ]:
             assert slug in KNOWN_ACTOR_SLUGS, f"{slug!r} must be registered"
 
@@ -36,6 +38,8 @@ class TestKnownActorSlugs:
             "epc-ct-ppd-unified",
             "planning-aggregator",
             "landlord-network",
+            "uk-tenders",
+            "uk-avm",
         )
 
 

@@ -6,6 +6,9 @@ Public surface:
   :func:`sort_by_distance` — pure geometry with no network IO.
 - :class:`OverpassClient`, :class:`AmenityHit`, :class:`AmenityCategory`,
   :func:`build_query`, :func:`parse_elements` — OSM Overpass POI search.
+- :class:`OverpassAmenitySource` — async callable that aggregates
+  Overpass hits into ``{category: count}`` for consumers of the
+  ``uk_property_avm.AmenityDensitySource`` structural protocol.
 
 Everything else in the plan (OSRM/OTP routing, isochrones, H3 tiling,
 polygon overlays) is deliberately deferred. Haversine + Overpass already
@@ -15,6 +18,7 @@ any extra infrastructure.
 
 from __future__ import annotations
 
+from uk_property_geo.amenity_source import OverpassAmenitySource
 from uk_property_geo.distance import (
     BoundingBox,
     Point,
@@ -37,6 +41,7 @@ __all__ = [
     "AmenityCategory",
     "AmenityHit",
     "BoundingBox",
+    "OverpassAmenitySource",
     "OverpassClient",
     "OverpassError",
     "Point",

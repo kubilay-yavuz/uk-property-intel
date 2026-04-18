@@ -650,7 +650,11 @@ class TestPlanningCouncilsTool:
     async def test_list_planning_councils_reports_transport_support(self) -> None:
         tool = _tool_by_name("list_planning_councils")
         out = await tool.ainvoke({})
-        assert out["count"] >= 6
+        # Public library ships reference configs for one ArcGIS council
+        # (Lambeth) and one HTML-only council (Westminster); the full
+        # curated set of supported councils lives behind the hosted A5
+        # actor and is not exposed through this tool.
+        assert out["count"] >= 2
         by_slug = {row["slug"]: row for row in out["councils"]}
         # Lambeth is ArcGIS-backed (supports 'recent'); Westminster is HTML-only.
         assert by_slug["lambeth"]["supports_arcgis"] is True

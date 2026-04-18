@@ -568,7 +568,7 @@ class TestCouncilRegistry:
         from uk_property_apis.idox.councils import arcgis_enabled_councils
 
         enabled = {c.slug for c in arcgis_enabled_councils()}
-        assert enabled == {"lambeth", "barnet"}
+        assert enabled == {"lambeth"}
 
     def test_detail_url_builder_supports_alternate_tab(self) -> None:
         c = get_council("lambeth")

@@ -21,10 +21,13 @@ from typing import Any
 
 import pytest
 from uk_property_agent.apify_mode import (
+    _build_avm_actor_input,
     _build_landlord_actor_input,
     _build_planning_actor_input,
+    _map_avm_result,
     _map_landlord_result,
     _map_planning_result,
+    maybe_delegate_estimate_property_value,
     maybe_delegate_landlord_network_for_company,
     maybe_delegate_search_planning_applications,
 )
@@ -41,6 +44,7 @@ def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "UK_PROPERTY_APIFY_MODE",
         "APIFY_ACTOR_PLANNING_AGGREGATOR",
         "APIFY_ACTOR_LANDLORD_NETWORK",
+        "APIFY_ACTOR_UK_AVM",
     ]:
         monkeypatch.delenv(name, raising=False)
 
@@ -234,6 +238,14 @@ class TestMaybeDelegateOff:
             max_companies=50,
             max_officers=200,
             expand_corporate_pscs=True,
+        )
+        assert out is None
+
+    async def test_avm_no_env_returns_none(self) -> None:
+        out = await maybe_delegate_estimate_property_value(
+            postcode="SW2 5TN",
+            property_type=None,
+            years_back=3,
         )
         assert out is None
 
@@ -521,6 +533,280 @@ class TestLandlordEndToEnd:
             )
 
 
+# ── UK-AVM (A10) input / output plumbing ─────────────────────────────────
+
+
+def _avm_row(
+    *,
+    postcode: str = "SW2 5TN",
+    estimate_gbp: int = 485_000,
+    low_gbp: int = 450_000,
+    high_gbp: int = 520_000,
+    method: str = "hedonic",
+    hpi_to_date: str | None = "2026-01",
+    with_neighbourhood: bool = False,
+    ppd_rows: int = 42,
+    enriched_rows: int = 40,
+) -> dict[str, Any]:
+    """Minimal A10 dataset row (matches the actor's :func:`_on_success`)."""
+    payload: dict[str, Any] = {
+        "label": "target_0",
+        "target": {"postcode": postcode},
+        "estimate": {
+            "postcode": postcode,
+            "estimate_gbp": estimate_gbp,
+            "low_gbp": low_gbp,
+            "high_gbp": high_gbp,
+            "confidence": "high",
+            "basis": "postcode_type",
+            "methodology": f"{method} fit on 40 local sales",
+            "comparables_used": enriched_rows,
+        },
+        "method": method,
+        "hpi_to_date": hpi_to_date,
+        "pool": {
+            "postcodes": [postcode],
+            "ppd_rows": ppd_rows,
+            "epc_rows": 30,
+            "enriched_rows": enriched_rows,
+            "match_counts": {"exact_address": 30},
+        },
+    }
+    if with_neighbourhood:
+        payload["neighbourhood"] = {
+            "postcode": postcode,
+            "latitude": 51.4535,
+            "longitude": -0.1126,
+            "crimes_last_12mo": 12,
+            "burglary_last_12mo": 2,
+            "active_flood_warnings": 0,
+            "nearest_station_km": 0.6,
+            "nearest_station_name": "Brixton",
+            "stations_within_1km": 1,
+        }
+    return payload
+
+
+def _avm_run_meta(
+    *, lookback_years: int = 3, method: str = "hedonic"
+) -> dict[str, Any]:
+    return {
+        "totals": {
+            "targets": 1,
+            "estimates": 1,
+            "errors": 0,
+            "ppd_rows": 42,
+            "epc_rows": 30,
+            "enriched_rows": 40,
+            "fit_hedonic": 1,
+            "fallback_median": 0,
+            "methods": {method: 1},
+        },
+        "parameters": {
+            "targets": 1,
+            "lookback_years": lookback_years,
+            "method": method,
+            "hpi_enabled": True,
+            "hpi_to_date": None,
+            "include_neighbourhood": False,
+        },
+    }
+
+
+class TestAvmActorInput:
+    def test_minimal_input(self) -> None:
+        actor_input = _build_avm_actor_input(
+            postcode="SW2 5TN",
+            property_type=None,
+            years_back=3,
+            method="hedonic",
+            include_neighbourhood=False,
+            hpi_enabled=True,
+            hpi_to_date=None,
+        )
+        assert actor_input == {
+            "targets": [{"postcode": "SW2 5TN"}],
+            "lookbackYears": 3,
+            "method": "hedonic",
+            "hpiEnabled": True,
+            "includeNeighbourhood": False,
+            "targetConcurrency": 1,
+        }
+
+    def test_property_type_is_forwarded(self) -> None:
+        actor_input = _build_avm_actor_input(
+            postcode="SW2 5TN",
+            property_type="T",
+            years_back=5,
+            method="gbm",
+            include_neighbourhood=True,
+            hpi_enabled=False,
+            hpi_to_date="2024-06",
+        )
+        assert actor_input["targets"] == [
+            {"postcode": "SW2 5TN", "propertyType": "T"}
+        ]
+        assert actor_input["lookbackYears"] == 5
+        assert actor_input["method"] == "gbm"
+        assert actor_input["hpiEnabled"] is False
+        assert actor_input["hpiToDate"] == "2024-06"
+        assert actor_input["includeNeighbourhood"] is True
+
+
+class TestAvmResultMap:
+    def test_happy_path_passes_through_estimate(self) -> None:
+        out = _map_avm_result(
+            [_avm_row()],
+            _avm_run_meta(),
+            postcode="sw2 5tn",
+            property_type=None,
+            years_back=3,
+        )
+        assert out["postcode"] == "SW2 5TN"
+        assert out["property_type"] is None
+        assert out["years_back"] == 3
+        assert out["ppd_rows_fetched"] == 42
+        assert out["comparables_considered"] == 40
+        assert out["estimate"]["estimate_gbp"] == 485_000
+        assert out["method"] == "hedonic"
+        assert out["hpi_to_date"] == "2026-01"
+        # Neighbourhood isn't on this row, so the field is ``None``.
+        assert out["neighbourhood"] is None
+
+    def test_row_with_neighbourhood_is_validated(self) -> None:
+        out = _map_avm_result(
+            [_avm_row(with_neighbourhood=True)],
+            _avm_run_meta(),
+            postcode="SW2 5TN",
+            property_type=None,
+            years_back=3,
+        )
+        assert out["neighbourhood"] is not None
+        assert out["neighbourhood"]["postcode"] == "SW2 5TN"
+        assert out["neighbourhood"]["crimes_last_12mo"] == 12
+
+    def test_empty_dataset_raises(self) -> None:
+        with pytest.raises(DelegationError, match="no rows"):
+            _map_avm_result(
+                [],
+                _avm_run_meta(),
+                postcode="SW2 5TN",
+                property_type=None,
+                years_back=3,
+            )
+
+    def test_missing_estimate_raises(self) -> None:
+        row = _avm_row()
+        del row["estimate"]
+        with pytest.raises(DelegationError, match="missing 'estimate'"):
+            _map_avm_result(
+                [row],
+                _avm_run_meta(),
+                postcode="SW2 5TN",
+                property_type=None,
+                years_back=3,
+            )
+
+    def test_malformed_estimate_raises(self) -> None:
+        row = _avm_row()
+        row["estimate"] = {"postcode": "SW2 5TN"}  # missing required fields
+        with pytest.raises(DelegationError, match="failed validation"):
+            _map_avm_result(
+                [row],
+                _avm_run_meta(),
+                postcode="SW2 5TN",
+                property_type=None,
+                years_back=3,
+            )
+
+    def test_malformed_neighbourhood_is_dropped_not_fatal(self) -> None:
+        row = _avm_row(with_neighbourhood=True)
+        row["neighbourhood"] = {"postcode": None}  # fails validation
+        out = _map_avm_result(
+            [row],
+            _avm_run_meta(),
+            postcode="SW2 5TN",
+            property_type=None,
+            years_back=3,
+        )
+        # The estimate still came through; the bad sub-object was quietly dropped.
+        assert out["estimate"]["estimate_gbp"] == 485_000
+        assert out["neighbourhood"] is None
+
+
+class TestAvmEndToEnd:
+    async def test_delegation_replaces_local_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("APIFY_API_TOKEN", "tok")
+        monkeypatch.setenv("APIFY_USERNAME", "me")
+
+        fake = _FakeApifyClient(
+            run_response={
+                "id": "run_a10",
+                "status": "SUCCEEDED",
+                "defaultDatasetId": "ds",
+                "defaultKeyValueStoreId": "kv",
+            },
+            ds_items={
+                "ds": [_avm_row(estimate_gbp=500_000, with_neighbourhood=True)]
+            },
+            kv_records={"kv": {"RUN_META": _avm_run_meta()}},
+        )
+        captured = _patch_call(monkeypatch, fake)
+
+        class _ExplodingLandRegistry:
+            async def __aenter__(self):
+                raise AssertionError(
+                    "LandRegistryClient must not run when AVM delegation is on"
+                )
+
+            async def __aexit__(self, *_exc: Any) -> None:
+                return None
+
+            async def search_by_postcode(
+                self, *_args: Any, **_kwargs: Any
+            ) -> list[Any]:  # pragma: no cover
+                raise AssertionError("must not be reached")
+
+        @asynccontextmanager
+        async def _exploding_factory():
+            raise AssertionError("crawler_factory must not run when delegating")
+            yield  # pragma: no cover
+
+        ctx = ToolContext(
+            crawler_factory=_exploding_factory,
+            land_registry_factory=_ExplodingLandRegistry,  # type: ignore[arg-type]
+        )
+        tools = {t.name: t for t in build_tools(ctx)}
+        out = await tools["estimate_property_value"].ainvoke(
+            {"postcode": "SW2 5TN", "years_back": 3}
+        )
+
+        assert captured["actor_id"] == "me~uk-avm"
+        assert captured["actor_input"]["targets"] == [{"postcode": "SW2 5TN"}]
+        assert captured["actor_input"]["lookbackYears"] == 3
+        assert captured["actor_input"]["method"] == "hedonic"
+        assert out["estimate"]["estimate_gbp"] == 500_000
+        assert out["method"] == "hedonic"
+        assert out["neighbourhood"] is not None
+
+    async def test_delegation_failure_raises_delegation_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("APIFY_API_TOKEN", "tok")
+        monkeypatch.setenv("APIFY_USERNAME", "me")
+
+        fake = _FakeApifyClient(run_response={"id": "r", "status": "ABORTED"})
+        _patch_call(monkeypatch, fake)
+        with pytest.raises(DelegationError, match="ABORTED"):
+            await maybe_delegate_estimate_property_value(
+                postcode="SW2 5TN",
+                property_type=None,
+                years_back=3,
+            )
+
+
 # ── Local path still works unchanged when env isn't set ──────────────────
 
 
@@ -597,3 +883,45 @@ class TestLocalFallbackStillUsed:
         )
         tools = {t.name for t in build_tools(ctx)}
         assert "landlord_network_for_company" in tools
+
+    async def test_avm_local_path_runs_when_env_absent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("APIFY_API_TOKEN", raising=False)
+
+        fetched: list[str] = []
+
+        class _FakeLR:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_exc: Any) -> None:
+                return None
+
+            async def search_by_postcode(
+                self, postcode: str, *, expand: bool = True
+            ) -> list[Any]:
+                del expand
+                fetched.append(postcode)
+                return []
+
+        @asynccontextmanager
+        async def _fake_factory():
+            yield None
+
+        ctx = ToolContext(
+            crawler_factory=_fake_factory,
+            land_registry_factory=_FakeLR,  # type: ignore[arg-type]
+        )
+        tools = {t.name: t for t in build_tools(ctx)}
+        out = await tools["estimate_property_value"].ainvoke(
+            {"postcode": "SW2 5TN", "years_back": 3}
+        )
+        assert fetched == ["SW2 5TN"]
+        assert out["postcode"] == "SW2 5TN"
+        assert out["ppd_rows_fetched"] == 0
+        assert out["comparables_considered"] == 0
+        assert out["estimate"]["basis"] == "insufficient_data"
+        # Local path doesn't expose the v3 knobs.
+        assert "method" not in out
+        assert "neighbourhood" not in out

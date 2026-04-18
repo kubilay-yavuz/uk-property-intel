@@ -268,29 +268,14 @@ class HedonicModel:
             return self._predict_via_fallback(target_pc, target)
 
         fit = self._fit
-        row = {
-            "property_type": _property_type_safe(target.property_type),
-            "tenure": normalise_tenure(target.tenure),
-            "postcode_area": _postcode_area_safe(target_pc),
-            "age_band": normalise_age_band(target.age_band),
-            "log_floor_area": math.log(
-                target.floor_area_sqm
-                if target.floor_area_sqm and target.floor_area_sqm > 0
-                else math.exp(fit.continuous_means["log_floor_area"])
-            ),
-            "energy_efficiency_c": (
-                (target.energy_efficiency or 0)
-                - fit.continuous_means["energy_efficiency_c"]
-                if target.energy_efficiency is not None
-                else 0.0
-            ),
-        }
-
-        x_cat = fit.encoder.transform(
-            pd.DataFrame([{k: row[k] for k in fit.categorical_cols}])
+        x = _design_row(
+            target,
+            target_pc,
+            fit.encoder,
+            fit.categorical_cols,
+            fit.continuous_cols,
+            fit.continuous_means,
         )
-        x_cont = np.array([[row[col] for col in fit.continuous_cols]])
-        x = np.hstack([x_cat, x_cont])
         log_estimate = float(fit.regressor.predict(x)[0])
         estimate = math.exp(log_estimate)
 
@@ -349,6 +334,46 @@ def estimate_value_hedonic(
     model = HedonicModel(min_rows_for_fit=min_rows_for_fit)
     model.fit(comparables)
     return model.predict(target)
+
+
+def _design_row(
+    target: HedonicTarget,
+    target_pc: str,
+    encoder: OneHotEncoder,
+    categorical_cols: list[str],
+    continuous_cols: list[str],
+    continuous_means: dict[str, float],
+) -> np.ndarray:
+    """Build the 1-row design matrix for ``target`` matching the fit's schema.
+
+    Factored out so the quantile and gradient-boosted variants can reuse
+    the exact same predict-time feature construction as the linear
+    hedonic model. Unknown category values are handled by the encoder's
+    ``handle_unknown="ignore"`` setting, so we don't need to guard here.
+    """
+
+    raw_floor = target.floor_area_sqm
+    if raw_floor is None or raw_floor <= 0:
+        log_floor = continuous_means["log_floor_area"]
+    else:
+        log_floor = math.log(raw_floor)
+
+    if target.energy_efficiency is None:
+        ee_centred = 0.0
+    else:
+        ee_centred = float(target.energy_efficiency) - continuous_means["energy_efficiency_c"]
+
+    row = {
+        "property_type": _property_type_safe(target.property_type),
+        "tenure": normalise_tenure(target.tenure),
+        "postcode_area": _postcode_area_safe(target_pc),
+        "age_band": normalise_age_band(target.age_band),
+        "log_floor_area": log_floor,
+        "energy_efficiency_c": ee_centred,
+    }
+    x_cat = encoder.transform(pd.DataFrame([{k: row[k] for k in categorical_cols}]))
+    x_cont = np.array([[row[col] for col in continuous_cols]])
+    return np.hstack([x_cat, x_cont])
 
 
 def _to_basic_comparable(row: EnrichedComparable) -> Comparable:
