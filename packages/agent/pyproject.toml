@@ -1,0 +1,43 @@
+[project]
+name = "uk-property-agent"
+version = "0.1.0"
+description = "Natural-language agent for UK property intelligence. LangGraph-based, with tool access to scrapers, government APIs, the geospatial engine, and the AVM."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "Kubilay Yavuz" }]
+keywords = ["uk", "property", "langgraph", "agent", "llm", "anthropic"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "pydantic>=2.9",
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "uk-property-scrapers",
+    "uk-property-listings",
+    "uk-property-apis",
+    "uk-property-apify-client",
+    "uk-property-avm",
+    "uk-property-geo",
+]
+
+[project.optional-dependencies]
+anthropic = [
+    "langchain-anthropic>=0.3",
+    "anthropic>=0.40",
+]
+
+[project.scripts]
+property-agent = "uk_property_agent.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uk_property_agent"]

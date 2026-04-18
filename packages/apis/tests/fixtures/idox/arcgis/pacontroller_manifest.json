@@ -1,0 +1,27 @@
+{
+  "name": "PAController",
+  "label": "PA Map Controller",
+  "2D": true,
+  "3D": false,
+  "platform": "HTML",
+  "version": "1.0.0",
+  "wabVersion": "2.6",
+  "author": "",
+  "description": "IDOX PA Map Controller",
+  "copyright": "",
+  "license": "",
+  "properties": {
+    "inPanel": false,
+    "hasLocale": false,
+    "hasStyle": false,
+    "hasConfig": true,
+    "hasUIFile": false,
+    "hasSettingPage": true,
+    "hasSettingUIFile": true,
+    "hasSettingLocale": true,
+    "hasSettingStyle": true,
+    "IsController": false,
+    "closeable": false,
+    "supportMultiInstance": false
+  }
+}

@@ -1,0 +1,559 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+    
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html lang="en-GB" xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-GB">
+<head>
+
+	<!-- #BeginEditable "doctitle" -->
+<title>Simple Search</title>
+<!-- #EndEditable -->
+    <!-- #BeginEditable "metatags" --><!-- #EndEditable -->
+
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+
+	<!-- Customer metatags -->
+	
+	
+	<!-- Favicon link -->
+    <link rel="icon" href="https://planning.lambeth.gov.uk/online-applications-skin/images/lambeth/favicon.ico" type="image/x-icon" />
+
+    <link rel="stylesheet" href="https://planning.lambeth.gov.uk/online-applications-skin/styles/screen.css" type="text/css" />
+    <link rel="stylesheet" href="https://planning.lambeth.gov.uk/online-applications-skin/styles/theme1.css" type="text/css"/>
+    <link rel="stylesheet" href="https://planning.lambeth.gov.uk/online-applications-skin/styles/print.css" type="text/css" media="print" />
+
+    <script type="text/javascript" src="https://planning.lambeth.gov.uk/online-applications-skin/scripts/jquery.min.js"></script>
+    <script type="text/javascript" src="https://planning.lambeth.gov.uk/online-applications-skin/scripts/jquery.toolbar.idox.min.js"></script>
+    <script type="text/javascript" src="https://planning.lambeth.gov.uk/online-applications-skin/scripts/common.js"></script>
+    <script type="text/javascript" src="https://planning.lambeth.gov.uk/online-applications-skin/scripts/checkbox.js"></script>
+	<!-- Customer Analytics Script -->
+	<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-KLVRJNS');</script>
+
+    <script type="text/javascript">
+    	$('html').addClass('js');
+    	$(document).ready(function(){
+    		$('.main#apply>span:first-child').attr('tabindex', '0')
+    	});
+    </script>
+
+    <!-- #BeginEditable "mobile" --><!-- #EndEditable -->
+    <!-- #BeginEditable "head" --><!-- #EndEditable -->
+    <!-- #BeginEditable "webapp" -->
+        <script type="text/javascript">
+            $(document).ready( function() {
+                onSearchTypeLoad();
+            });
+
+            function onSearchTypeLoad() {
+                if ($('input[name="searchType"]').val() === 'Application') {
+                    $('.row1.status').removeClass('hide');
+                 } else {
+                    $('.row1.status').addClass('hide');
+                 }
+            }
+        </script>
+    <!-- #EndEditable -->
+    <!-- #BeginEditable "recaptcha" -->
+        
+
+
+
+
+
+
+
+
+    <!-- #EndEditable -->
+
+</head>
+<body>
+
+    <a href="#pageheading" class="skip-link">Skip to main content</a>
+
+    <!-- IDOX PA START -->
+    <div id="idox">
+        <div id="pa">
+			<div id="header">
+				<div class="container">
+					<div id="logo"><a href="https://www.lambeth.gov.uk/" title="Lambeth Council home page"><img src="https://planning.lambeth.gov.uk/online-applications-skin/images/lambeth/logo.svg" alt="Council logo" /><span class="sr-only">Lambeth Council</span></a></div>
+					<div id="headertitle"><span>Public Access</span></div>
+					<div class="clear"></div>
+				</div>
+			</div>
+			<div id="breadcrumbs" class="container">
+				<ol>
+				    
+				</ol>
+			</div>
+            <div class="container" role="main">
+       			<div id="toolbar" class="nojs">
+                    <ul>
+                        <li id="search" class="main"><span tabindex="0">Search&nbsp;</span><span class="caret"></span>
+   							<ul>
+								<!-- #BeginLibraryItem "/Library/searchModulesNavItems.lbi" -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            <li id="planLinks">
+                <a href="/online-applications/search.do?action=simple&amp;searchType=Application" >
+                    <span>Planning</span>
+                </a>
+                <ul>
+                    <li id="planBasicSearch">
+                        <a href="/online-applications/search.do?action=simple&amp;searchType=Application">
+                            Simple Search
+                        </a>
+                    </li>
+
+                    <li id="planAdvancedSearch">
+                        <a href="/online-applications/search.do?action=advanced&amp;searchType=Application">
+                            Advanced
+                        </a>
+                    </li>
+                    <li id="planListSearch">
+                        <a href="/online-applications/search.do?action=weeklyList&amp;searchType=Application">
+                            Weekly/Monthly Lists
+                        </a>
+                    </li>
+                    <li id="planPropertySearch">
+                        <a href="/online-applications/search.do?action=property&amp;type=custom&amp;searchType=Application">
+                            Property Search
+                        </a>
+                    </li>
+					
+                    
+                        <li id="planMapsearch">
+                            <a href="/online-applications/spatialDisplay.do?action=display&amp;searchType=Application">
+                                Map Search
+                            </a>
+                        </li>
+                    
+					
+                </ul>
+            </li>
+        
+
+        
+
+        
+            <li id="bcLinks">
+                <a href="/online-applications/search.do?action=simple&amp;searchType=BuildingControl">
+                    <span>Building Control</span>
+                </a>
+                <ul>
+                    <li id="bcBasicSearch">
+                        <a href="/online-applications/search.do?action=simple&amp;searchType=BuildingControl">
+                            Simple Search
+                        </a>
+                    </li>
+                    <li id="bcAdvancedSearch">
+                        <a href="/online-applications/search.do?action=advanced&amp;searchType=BuildingControl">
+                            Advanced
+                        </a>
+                    </li>
+                    <li id="bcListSearch">
+                        <a href="/online-applications/search.do?action=weeklyList&amp;searchType=BuildingControl">
+                            Weekly/Monthly Lists
+                        </a>
+                    </li>
+                    <li id="bcPropertySearch">
+                        <a href="/online-applications/search.do?action=property&amp;type=custom&amp;searchType=BuildingControl">
+                            Property Search
+                        </a>
+                    </li>
+
+                    
+                        <li id="bcMapsearch">
+                            <a href="/online-applications/spatialDisplay.do?action=display&amp;searchType=BuildingControl">
+                                Map Search
+                            </a>
+                        </li>
+                    
+					
+                </ul>
+            </li>
+        
+
+        
+
+        
+            <li id="liLinks">
+                <a href="/online-applications/search.do?action=simple&amp;searchType=LicencingApplication">
+                    <span>Licensing</span>
+                </a>
+
+                <ul>
+                    <li id="liBasicSearch">
+                        <a href="/online-applications/search.do?action=simple&amp;searchType=LicencingApplication">
+                            Simple Search
+                        </a>
+                    </li>
+                    <li id="liAdvancedSearch">
+                        <a href="/online-applications/search.do?action=advanced&amp;searchType=LicencingApplication">
+                            Advanced
+                        </a>
+                    </li>
+                    <li id="liPropertySearch">
+                        <a href="/online-applications/search.do?action=property&amp;type=custom&amp;searchType=LicencingApplication">
+                            Property Search
+                        </a>
+                    </li>
+
+                    
+                        <li id="liMapsearch">
+                            <a href="/online-applications/spatialDisplay.do?action=display&amp;searchType=LicencingApplication">
+                                Map Search
+                            </a>
+                        </li>
+                    
+                </ul>
+            </li>
+        <!-- #EndLibraryItem -->
+                        	</ul>
+						</li>
+                        <!-- #BeginEditable "applicationForms" -->
+
+
+
+
+
+   
+<!-- #EndEditable -->
+                        <li id="myprofile" class="main"><span tabindex="0">My Profile&nbsp;</span><span class="caret"></span>
+                            <ul>
+                              <!-- #BeginLibraryItem "/Library/consulteeInTrayNavItem.lbi" -->
+
+
+
+
+
+
+    <!-- #EndLibraryItem -->
+                                <li><a href="https://planning.lambeth.gov.uk/online-applications/registered/displayUserDetails.do">Profile Details</a></li>
+                                <li><a href="https://planning.lambeth.gov.uk/online-applications/registered/savedSearch.do?action=display">Saved Searches</a></li>
+                                <li><a href="https://planning.lambeth.gov.uk/online-applications/registered/userAdmin.do?action=showNotifiedApplications">Notified Applications</a></li>
+                                <li><a href="https://planning.lambeth.gov.uk/online-applications/registered/trackedApplication.do?action=display">Tracked Applications</a></li>
+                                <!-- #BeginEditable "formSubmissions" -->
+
+
+
+
+
+
+
+
+<!-- #EndEditable -->
+                            </ul>
+                        </li>
+                        <li id="loginLink" class="main"><!-- #BeginEditable "loginlogout" -->
+
+
+
+
+
+
+
+
+
+
+	<a href="/online-applications/registered/userAdmin.do">Login</a>
+<!-- #EndEditable --></li>
+                        <!-- #BeginEditable "register" -->
+
+
+
+
+
+
+
+
+   
+
+
+	<li id="register">
+        <a href="/online-applications/registrationWizard.do?action=start">Register</a>
+	</li>
+
+<!-- #EndEditable -->
+                        <!-- #BeginLibraryItem "/Library/applyOnlineNavItems.lbi" -->
+
+
+
+
+
+
+
+
+
+<!-- #EndLibraryItem -->
+                    </ul>
+    			</div>
+
+    			<!-- #BeginEditable "headlinenews" -->
+    
+        
+            <div class="messagebox announcement">
+                <p><strong>Welcome to the Planning Applications Database.</strong></p>
+
+<p>To view the collection of historic planning notices click <a href="https://planning.lambeth.gov.uk/online-applications/applicationDetails.do?activeTab=documents&amp;keyVal=SI97FYBO05600&amp;documentOrdering.orderBy=description&amp;documentOrdering.orderDirection=ascending">here.</a></p>
+
+<p>Please enter a case reference number or address to search for a planning application, Appeal or Enforcement case.<br />
+<br />
+When searching a planning application only use the first 7 numbers of the case reference number e.g. 14/02012</p>
+
+<p>The Planning, Transport and Development Service is committed to protecting your privacy. Find out by reading our <a href="https://www.lambeth.gov.uk/elections-and-council/privacy/planning-transport-and-development-service-privacy-notice">privacy notice.</a></p>
+            </div>
+        
+    
+<!-- #EndEditable -->
+
+                <div id="pageheading">
+                    <h1><strong>Planning</strong>&nbsp;&ndash;&nbsp;<!-- #BeginEditable "pageheading" -->Simple Search <!-- #EndEditable --></h1>
+                    <!-- #BeginEditable "helplink" --><!-- #EndEditable -->
+                </div>
+
+                <!-- START WAM CONTENT -->
+                <div class="content">
+                    <!-- #BeginEditable "errormsg" -->
+  
+    
+    
+
+    
+    <div class="messagebox"><h2>Please check the search criteria:</h2><ul>
+        <li>No results found.</li>
+    </ul></div>
+
+    
+    
+<!-- #EndEditable -->
+                    <!-- #BeginEditable "pagehead" -->
+    <p>
+    
+    
+        Search for Planning Applications, Appeals and Enforcements by keyword, application reference, postcode or by a single line of an address.
+    
+    </p>
+<!-- #EndEditable -->
+                    <!-- #BeginEditable "tabs" -->
+    
+        
+        
+        
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+
+
+
+
+
+<ul class="tabs">
+
+    
+    <li>
+        <a href="/online-applications/search.do?action=simple" class="active"><span>Simple</span></a>
+        
+            
+            <ul class="subtabs">
+                
+                    <li>
+                        <a href="/online-applications/search.do?action=simple&amp;searchType=Application" class="active"><span class="sr-only">Search </span><span>Applications</span></a>
+                    </li>
+                
+                    <li>
+                        <a href="/online-applications/search.do?action=simple&amp;searchType=Appeal" class=""><span class="sr-only">Search </span><span>Appeals</span></a>
+                    </li>
+                
+                    <li>
+                        <a href="/online-applications/search.do?action=simple&amp;searchType=Enforcement" class=""><span class="sr-only">Search </span><span>Enforcements</span></a>
+                    </li>
+                
+            </ul>
+        
+    </li>
+
+    
+    <li>
+        <a href="/online-applications/search.do?action=advanced" class=""><span> Advanced</span></a>
+        
+    </li>
+
+    
+        
+        <li>
+            <a href="/online-applications/search.do?action=weeklyList" class=""><span>Weekly/Monthly Lists</span></a>
+            
+        </li>
+    
+
+    
+    <li>
+        <a href="/online-applications/search.do?action=property&amp;type=custom" class=""><span> Property</span></a>
+        
+    </li>
+
+    
+    
+        
+            <li>
+                
+                <a href="/online-applications/spatialDisplay.do?action=display&amp;searchType=Application" class=""><span>Map</span></a>
+            </li>
+        
+    
+
+</ul>
+
+<!-- #EndEditable -->
+                    <!-- #BeginEditable "tabsubnav" --><!-- #EndEditable -->
+                    <!-- #BeginEditable "pagebody" -->
+
+<div class="tabcontainer" id="simpleSearch">
+
+    <form name="searchCriteriaForm" method="post" action="/online-applications/simpleSearchResults.do?action=firstPage" id="simpleSearchForm">
+        <input type="hidden" name="_csrf" value="5207cd64-572a-4dae-aa01-1dc12d00bb99" />
+        <input type="hidden" name="searchType" value="Application"/>
+
+        
+            
+        
+
+    <div class="row1 status">
+        <label for="searchTypeStatus">
+            Status:
+        </label>
+        <select name="searchCriteria.caseStatus" id="searchTypeStatus"><option value="">All</option>
+            <option value="Current">Current</option>
+            <option value="Decided">Decided</option></select>
+    </div>
+
+    
+    <div class="row2">
+        <label for="simpleSearchString">
+                Enter a <strong>keyword</strong>, <strong>reference number</strong>, <strong>postcode</strong> or <strong>single line of an address</strong>.
+        </label>
+    </div>
+    
+
+    <div class="row3">
+
+        
+        <span class="fieldhelp">
+            
+                <a href="https://planning.lambeth.gov.uk/online-applications-skin/help/fieldhelp/simpleSearchString.htm" target="_blank" rel="external" title="Help with Simple Search (opens in a new window)">
+                    <img src="https://planning.lambeth.gov.uk/online-applications-skin/images/help.gif" alt="Help icon" width="16" height="16" class="helpicon" />
+                </a>
+            
+            
+        </span>
+        
+        <input type="text" name="searchCriteria.simpleSearchString" maxlength="255" autocomplete="off" value="SW2 5TF" onblur="javascript:this.value=this.value.replace(/^\s+|\s+$/g,'')" onfocus="javascript:this.value=this.value.replace(/^\s+|\s+$/g,'')" class="text" id="simpleSearchString" />
+
+        <input type="hidden" name="searchCriteria.simpleSearch" value="true" />
+        <input type="submit" value="Search" class="button primary recaptcha-submit" />
+
+    </div>
+
+    </form>
+</div>
+
+<!-- #EndEditable -->
+                    <!-- #BeginEditable "pagefoot" --><!-- #EndEditable -->
+                </div>
+                <!-- END WAM CONTENT -->
+
+                <p id="poweredBy"><a href="http://www.idoxgroup.com/" target="_blank" title="This link will open a new window"><img src="https://planning.lambeth.gov.uk/online-applications-skin/images/powered-by-idox.png" alt="Powered by Idox" /></a></p>
+            </div>
+			<div id="footer">
+				<div class="container">
+				    <div id="links">
+						<ul>
+							<li><a href="https://www.lambeth.gov.uk/about-council">About the council</a></li><li><a href="https://www.lambeth.gov.uk/about-council/contact-us">Contact us</a></li><li><a href="https://www.lambeth.gov.uk/jobs-skills">Jobs and skills</a></li><li><a href="https://www.lambeth.gov.uk/about-council/transparency-open-data">Transparency and open data</a></li><li><a href="http://love.lambeth.gov.uk/?utm_source=footer&amp;utm_campaign=news">News</a></li><li><a href="https://www.lambeth.gov.uk/accessibility/accessibility-statement-lambeth-council-website?utm_source=D8LBLFooter">Accessibility</a></li><li><a href="https://www.lambeth.gov.uk/about-council/privacy-data-protection?utm_source=footer&amp;utm_campaign=privacy">Privacy</a></li><li><a href="https://www.lambeth.gov.uk/about-council/modern-slavery?utm_source=footer&amp;utm_campaign=modernslavery">Modern slavery</a></li><li><a href="https://www.lambeth.gov.uk/browse-a-z">Site A to Z</a></li>
+						</ul>
+					</div>
+					<div class="clear"></div>
+					
+					<div id="footer-logo"><p><span>Lambeth Council logo</span></p></div>
+					<div id="footercontent"><p>Copyright &copy; <script type="text/javascript">document.write(new Date().getFullYear());</script> Lambeth Council</p></div>					
+					<div class="clear"></div>
+				</div>
+			</div>
+        </div>
+    </div>
+    <!-- IDOX PA END -->
+
+</body>
+</html>
+
