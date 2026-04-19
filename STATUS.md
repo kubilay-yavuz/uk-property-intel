@@ -8,9 +8,9 @@ packages here.
 
 | Metric | Value |
 |---|---|
-| Packages shipped | 7 (`scrapers`, `listings`, `apis`, `apify_client`, `geo`, `avm`, `agent`) |
-| Tests (mocked) | **823 green** across `packages/` |
-| Live smoke probes | 15 green (incl. `idox_arcgis_lambeth` + `idox_html_westminster`), 2 credential-skip, 0 fail |
+| Packages shipped | 8 (`scrapers`, `listings`, `apis`, `apify_client`, `geo`, `avm`, `agent`, `data`) |
+| Tests (mocked) | **1092 green** across `packages/` (+134 in `packages/agent` — Agent v3 streaming narrative added 3 graph-level streaming tests on top of the 131 multi-provider + dossier + cache baseline) |
+| Live smoke probes | **18 green** (18 API-level: postcodes, HMLR, police, EA flood, planning.data, Overpass, ONS Beta, **Nomis (generic `observations`)**, **Natural England (4/5 layers post-2025 Defra migration)**, **Contracts Finder**, VOA, Idox ArcGIS Lambeth, Idox HTML Westminster, Rightmove/Zoopla/OnTheMarket parsers, listings live GET, agent chain), **2 credential-skip** (EPC + Companies House), **0 fail** |
 
 ---
 
@@ -40,7 +40,9 @@ Typed async clients for every free UK property data source:
 | Postcodes.io | Full | Coords + admin geography |
 | HMLR Price Paid (SPARQL) | Full | `transaction-record.json` expand path, N+1 fix shipped |
 | data.police.uk | Full | Crime counts near coord, handles 1-month publication lag |
-| Environment Agency Flood | Full | Flood alerts + stations by postcode |
+| Environment Agency Flood | Full | Flood alerts + stations by postcode. **`MonitoringStation` hardened (2026-04-19)** to accept both list and URL-string shapes for `stage_scale` / `measures` — the live API returns either depending on the station. |
+| Environment Agency Coastal Erosion | **Upstream-deprecated (2026-04-19)** | All methods raise `RuntimeError` with `_NCERM_MIGRATION_MESSAGE`. The DEFRA NCERM 2024 rebuild moved to BNG coordinates + a new layer schema; client needs a full rewrite. Downstream A11 surfaces this as a `partial_errors` row without failing the run. |
+| British Geological Survey | **Upstream-deprecated (2026-04-19)** | All geohazard methods raise `RuntimeError` with `_BGS_MIGRATION_MESSAGE`. BGS withdrew the public ArcGIS REST layers we consumed. A11 surfaces this as a `partial_errors` row. |
 | planning.data.gov.uk | Full | Entities by dataset, coerces messy string ints |
 | OSM Overpass | Full | Amenity search by category, haversine ranking |
 | EPC Open Data | Full | Certificates by postcode / LMK key |
@@ -56,7 +58,7 @@ Status: **DONE**. All clients hit real endpoints and return live data (verified 
 ### `packages/apify_client` — `uk-property-apify-client` (new 2026-04-18)
 Public SDK wrapper for invoking our hosted Apify actors from consumers who want to delegate (MCPs + agent tools). Lets the free tier transparently escalate to the paid moat without linking any moat dependencies.
 
-- `ActorKey` — `Literal` union of all canonical UK-property actor slugs (`zoopla-listings`, `rightmove-listings`, `onthemarket-listings`, `epc-ct-ppd-unified`, `planning-aggregator`, `landlord-network`, `uk-tenders`, …)
+- `ActorKey` — `Literal` union of all canonical UK-property actor slugs (`zoopla-listings`, `rightmove-listings`, `onthemarket-listings`, `epc-ct-ppd-unified`, `planning-aggregator`, `landlord-network`, `uk-tenders`, `uk-demographics`, `uk-avm`, **`uk-climate-risk`** (added 2026-04-19), **`uk-location-intel`** (added 2026-04-19))
 - `ActorId("username", "slug")` — frozen dataclass, validates both halves, supports `.from_string("user~slug")` and `APIFY_ACTOR_<KEY>` env override lookup
 - `ApifyDelegation` — frozen dataclass carrying resolved call config (`api_token`, `actor_id`, `timeout_s`, `memory_mb`, `build`, `mode`). `.resolve(key, …)` reads `UK_PROPERTY_APIFY_MODE` (`auto`/`off`/`apify`) + `APIFY_API_TOKEN` + `APIFY_USERNAME` + `APIFY_ACTOR_<KEY>` and returns `None` when delegation isn't configured (callers fall back to local paths). `.call(run_input)` lazy-imports `apify-client`, runs the actor, and materialises default dataset + `RUN_META` + `ERRORS` KV records into an `ActorCallResult`.
 - `ActorCallResult` — standardised envelope: `status`, `run_id`, `items`, `run_meta`, `errors`, `stats`. Consumers rehydrate items via whatever Pydantic model the target actor guarantees (`Listing`, `PlanningApplication`, `LandlordGraph`, etc.)
@@ -71,8 +73,10 @@ Status: **DONE**. This is the linchpin of the dual-mode funnel: MCPs + agent too
 - Overpass client (thin wrapper around `packages/apis`'s Overpass) for amenity-at-distance queries
 - Postcode-to-coord convenience (via `packages/apis` Postcodes.io)
 - **`OverpassAmenitySource`** (new 2026-04-18) — concrete adapter satisfying `uk_property_avm.AmenityDensitySource`. Aggregates `OverpassClient.amenities_near(...)` hits into a `{category_value: count}` mapping keyed by `AmenityCategory.value`, with zero-counts for configured-but-missing categories so the output schema stays stable. Owns-or-borrows an `OverpassClient` (closes the one it created, shares the one passed in). Wire into `NeighbourhoodFeatureExtractor(amenity_source=OverpassAmenitySource(...))` to close the last `None`-typed slot in the AVM v3 feature extractor.
+- **OSRM + OTP routing clients** (`OSRMClient`, `OTPClient`, `NaPTANLookup`, `OverlayEngine`, `H3Grid`) carried over from geo v2 work.
+- **`OSRMClient.isochrone(...)`** (new 2026-04-19) — synthesises a driving / walking / cycling isochrone from the vanilla OSRM `/table` endpoint by fanning out a **`radial_grid(lat, lng, step_m, max_radius_m)`** of destination probes. Returns a typed :class:`DriveIsochrone` — reachable points, per-cutoff counts, and per-cutoff max-reach distance. No hull polygon (Shapely stays an opt-in dep); callers can post-process the grid if they need a polygon. Shared between A12 `uk-location-intel` and the agent's `drive_time_isochrone` tool.
 
-Status: **v1 DONE** + **v3-polish amenity adapter shipped (2026-04-18)**. v2 pending — OSRM/OTP isochrones, H3 grid, polygons (Shapely).
+Status: **v1 DONE** + **v2 routing/isochrones DONE** + **v3-polish amenity adapter shipped**.
 
 ### `packages/avm` — `uk-property-avm`
 Eight composable modules (Phase C MVP shipped 2026-04-18; v3 ships same day):
@@ -101,24 +105,30 @@ Consumer-tier: **A10 `uk-avm` actor dispatcher DONE on 2026-04-18** — `method`
 
 ### `packages/agent` — `uk-property-agent`
 - LangGraph `StateGraph` with a tool-using ReAct node + response node
-- 20 `StructuredTool`s:
+- **23 `StructuredTool`s** (17 listed below + the three optional Companies House tools when `COMPANIES_HOUSE_API_KEY` is set):
   - Listings: `search_zoopla`, `search_rightmove`, `search_onthemarket`
   - Postcodes: `lookup_postcode`, `distance_between_postcodes`
   - Sales: `sold_prices_for_postcode`
   - Area: `crime_stats_near`, `flood_warnings_near`, `listed_buildings_near`, `amenities_near_postcode`
-  - Companies: `company_profile`, `company_search`, `company_officers`, `company_psc`, `officer_appointments`, `landlord_network_for_company` (graph traversal — conditional on CH API key)
+  - Companies (when CH API key present): `company_profile`, `company_search`, `company_officers`, `company_psc`, `officer_appointments`, `landlord_network_for_company`
   - Planning: `list_planning_councils`, `search_planning_applications` (ArcGIS preferred / HTML fallback, `mode='recent'|'search'`), `lookup_planning_application`
   - Valuation: `estimate_property_value` (AVM)
-- `ToolContext` DI pattern so tests can inject mocked clients — default crawler factory is `SimpleCrawler.from_env()` from `uk-property-listings`, plus `arcgis_planning_factory` / `html_planning_factory` for per-council Idox injection
-- **Dual-mode delegation** (2026-04-18): three tools now transparently delegate to hosted Apify actors when `APIFY_API_TOKEN` is set, falling back to local clients otherwise. The paid path rehydrates remote dataset rows through Pydantic models for byte-for-byte identical tool outputs.
+  - **Travel-time (v2, 2026-04-19)**: `drive_time_isochrone` (OSRM radial-grid) + `transit_isochrone` (OTP native). Both auto-delegate to the hosted A12 `uk-location-intel` actor when `APIFY_API_TOKEN` is set; otherwise require `OSRM_BASE_URL` / `OTP_BASE_URL`.
+  - **One-shot dossier (v2, 2026-04-19)**: `build_property_dossier` fans out across postcodes.io, HMLR, Overpass, listed-buildings, police, EA Flood, EPC (if creds) + Idox planning (when the postcode's council is in the public reference registry) in parallel via `asyncio.gather(return_exceptions=True)`. Returns a typed :class:`PropertyDossier` — every block nullable, partial failures logged as `DossierError` rows so one upstream outage never tanks the whole response.
+- `ToolContext` DI pattern so tests can inject mocked clients — default crawler factory is `SimpleCrawler.from_env()` from `uk-property-listings`, plus `arcgis_planning_factory` / `html_planning_factory` for per-council Idox injection and **`osrm_factory` / `otp_factory`** (2026-04-19, auto-wired from `OSRM_BASE_URL` / `OTP_BASE_URL`)
+- **Dual-mode delegation**: five tools now transparently delegate to hosted Apify actors when `APIFY_API_TOKEN` is set, falling back to local clients otherwise. The paid path rehydrates remote dataset rows through Pydantic models for byte-for-byte identical tool outputs.
   - `search_planning_applications` → A5 `planning-aggregator` (full private council registry; slugs unknown to the public seed still succeed).
   - `landlord_network_for_company` → A7 `landlord-network` (actor owns the BFS loop + CH rate-limit handling).
   - `estimate_property_value` → A10 `uk-avm` (hedonic / quantile / GBM / median ladder, HPI adjustment against the private ~85-point series, neighbourhood enrichment against the private station list). Extra fields — `method`, `hpi_to_date`, `neighbourhood` — land in the delegated output so callers can tell the paid path apart from the local median fallback.
-- CLI: `property-agent "Tell me about CB1 2JW"`
-- Supports Anthropic (default), Gemini, OpenAI via LangChain provider map
-- Tests: **73** (34 baseline + 7 planning tool + 32 `test_agent_apify_mode.py` covering all three delegation paths + local fallbacks)
+  - **`drive_time_isochrone` + `transit_isochrone` → A12 `uk-location-intel`** (2026-04-19) — both reshape the actor's `isochrone_drive` / `isochrone_transit` block back to the local tool's payload shape so the LLM sees one contract regardless of transport.
+- **Provider-aware prompt caching** (v2 → v3, 2026-04-19): the ~6.5 kB system prompt is emitted in a shape that matches each provider's caching mechanism. Anthropic gets a content-block with `cache_control={"type": "ephemeral", "ttl": "5m"}` so Claude caches the static prefix across turns. OpenAI + Gemini get a plain string that their SDKs auto-cache when the prefix clears their token threshold (1024 for OpenAI, Gemini's implicit cache). Opt out with `PropertyAgent(enable_prompt_cache=False)`; override TTL with `cache_ttl="1h"` (Anthropic-only). Also exported `build_system_message(provider=...)` + `cache_shape_for(provider)` + `CACHEABLE_SYSTEM_PROMPT` so callers can layer domain-specific context on top of the cached prefix.
+- **Multi-provider routing** (v3, 2026-04-19) — `uk_property_agent.providers` module. `Provider` `StrEnum` (`anthropic` / `openai` / `gemini`), `TaskKind` (`default` / `dossier` / `analysis` / `tool_plan`), `ProviderSpec` frozen dataclass, `resolve_provider(task, *, explicit, env)` walks a five-level precedence chain (explicit `ProviderSpec` / enum / slug → `AGENT_MODEL_<TASK>` env → `AGENT_MODEL_DEFAULT` env → `AGENT_PROVIDER` env → `AGENT_PROVIDER_CHAIN` first-available), `build_chat_model(spec)` with lazy `langchain-anthropic` / `langchain-openai` / `langchain-google-genai` imports so the default install stays slim. Per-provider default models (`claude-sonnet-4-5-20250929` / `gpt-4o` / `gemini-2.5-pro`). `has_credentials` / `select_available_provider` / `describe_env` for diagnostics + fallback plumbing. `PropertyAgent(provider=..., task=...)` wires the resolved spec into `build_chat_model` + provider-aware `build_system_message`; `model=` and `provider=` are mutually exclusive.
+- **Optional dependency groups** (v3): `uk-property-agent[anthropic]` / `[openai]` / `[gemini]` / `[all]` in `packages/agent/pyproject.toml` so tooling around a specific provider doesn't pull the other two SDKs.
+- **Streaming narrative output (v3 polish, 2026-04-19)**: `PropertyAgent.astream_narrative(question)` — token-level async iterator over the final LLM narrative, powered by LangGraph's `stream_mode="messages"`. Filters out tool-call chunks so the caller only sees prose. `PropertyAgent.astream_events(question)` emits a structured event stream — `{"type": "tool_call"\|"tool_result"\|"narrative_chunk"\|"final"}` — for richer UIs that want to interleave tool reasoning with streamed prose. The existing `astream(question)` stays around for graph-level state updates. All three methods gracefully fall back to a buffered final emission when the underlying chat model doesn't expose token streaming (e.g. some fakes and older OpenAI routes), so the return shape is stable regardless of provider.
+- CLI: `property-agent ask "Tell me about CB1 2JW"`, `property-agent ask --stream "..."` (narrative tokens → stdout, tool-call + tool-result events → stderr; plain buffered print without `--stream`), `property-agent ask --provider openai/gpt-4o --task dossier "..."`, `property-agent ask --show-provider "..."`, `property-agent env` (table view) / `property-agent env --json` (machine-readable LLM + infra snapshot).
+- Tests: **134** (131 v3 close + 3 new in `test_agent_graph.py`: `astream_narrative` yields final-answer text, filters the tool-call turn, and `astream_events` emits the full `tool_call → tool_result → narrative_chunk → final` sequence; `test_agent_cli.py` `test_ask_streams_narrative_to_stdout_and_tools_to_stderr` exercises the CLI `--stream` flag wiring end-to-end)
 
-Status: **ALPHA**. Core flow works with 20 tools + dual-mode delegation on all three paid-tier-worthy ones. Pending: routing/isochrone tool (after geo v2), prompt caching, structured final output (Pydantic dossier).
+Status: **ALPHA (v3 streaming shipped 2026-04-19)**. Core flow works with 23 tools + dual-mode delegation on five paid-tier-worthy paths + isochrones + structured dossier + provider-aware prompt caching + multi-provider routing across Anthropic / OpenAI / Gemini + streaming narrative on top of the typed dossier. Next: deprecating the per-source tools once the model reliably picks the dossier first; optional bring-up of LangGraph checkpoints for multi-turn conversation state.
 
 ---
 
@@ -188,10 +198,12 @@ code paths production would. Outputs `[OK]` / `[FAIL]` per probe.
 - [x] `packages/avm` v3: `hpi.py` + `quantile.py` + `gbm.py` + `features.py`, +115 tests (2026-04-18)
 - [x] `packages/avm` v3 → A10 wiring: `method` / `hpiToDate` / `includeNeighbourhood` dispatcher in the `uk-avm` actor + `packages/agent` `estimate_property_value` dual-mode delegation (2026-04-18)
 - [x] `packages/avm` v3 polish: regional HPI series loader (`from_ons_csv` + `list_ons_regions`), LightGBM `regressor_factory` (`make_lightgbm_regressor_factory` + `SklearnQuantileRegressor` Protocol), concrete `AmenityDensitySource` backed by `packages/geo` Overpass client (`OverpassAmenitySource`) — all three swap-in only, no A10 actor changes required (2026-04-18)
-- [ ] `packages/geo` v2: OSRM / OTP isochrones, H3 grid, Shapely polygons
-- [ ] `packages/agent`: isochrone tool (after geo v2 ships)
-- [ ] `packages/agent`: prompt caching, multi-provider routing
-- [ ] `packages/agent`: structured final output (Pydantic `PropertyDossier` model)
+- [x] `packages/geo` v2: OSRM / OTP routing clients, H3 grid, overlays, NaPTAN lookup, **`OSRMClient.isochrone()` radial-grid helper** (2026-04-19)
+- [x] `packages/agent`: isochrone tools — `drive_time_isochrone` (OSRM radial grid) + `transit_isochrone` (OTP native) with auto-delegation to A12 `uk-location-intel` (2026-04-19)
+- [x] `packages/agent`: Anthropic prompt caching on the system prompt via `build_system_message()` content blocks + `cache_ttl` knob (2026-04-19)
+- [x] `packages/agent`: structured final output — `PropertyDossier` Pydantic model + `build_property_dossier` orchestrator returning a typed dossier across postcode / AVM / PPD / neighbourhood / crime / flood / EPC / planning, with partial-failure surfacing (2026-04-19)
+- [x] `packages/agent`: **multi-provider routing + per-task model pinning + provider-aware prompt caching** — `providers.py` module (Anthropic / OpenAI / Gemini), `AGENT_MODEL_<TASK>` env, `[anthropic]` / `[openai]` / `[gemini]` / `[all]` optional-deps, CLI `--provider` / `--model` / `--task` / `--show-provider` + `env --json` (2026-04-19)
+- [x] `packages/agent`: **streaming narrative output** via LangGraph `stream_mode="messages"` — `PropertyAgent.astream_narrative(...)` + `astream_events(...)` + CLI `--stream` flag (narrative → stdout, tool events → stderr); graceful fallback to buffered emission on models without token streaming (2026-04-19)
 
 ### Infra
 - [ ] GitHub Actions CI (lint + test + smoke)
@@ -213,6 +225,198 @@ code paths production would. Outputs `[OK]` / `[FAIL]` per probe.
 - `zoopla-mcp`, `rightmove-mcp`, `onthemarket-mcp`, and every actor in
   `uk-property-apify` should replace their `[tool.uv.sources]` path entries
   with pinned PyPI versions in `dependencies`.
+
+---
+
+## 2026-04-19 — Agent v2 (isochrones + dossier + prompt caching)
+
+Three things shipped together because they compound — one structured dossier
+call replaces what used to be 6-8 round-trips through individual tools, and
+the cached system prompt means even long chat sessions don't re-pay the tool
+catalog tokens on every turn.
+
+### What landed
+
+| Piece | Where | Notes |
+|---|---|---|
+| `DriveIsochrone` model + `radial_grid(...)` + `OSRMClient.isochrone(...)` | `packages/geo/src/uk_property_geo/osrm.py` | Fans out a ring grid of destination points around the origin and hits OSRM `/table/v1/{profile}` once for all of them. Buckets reachable points per cutoff and surfaces max-reach distance. No hull polygon (Shapely stays opt-in). |
+| `drive_time_isochrone` + `transit_isochrone` tools | `packages/agent/src/uk_property_agent/isochrone.py` + `tools.py` | Local path uses `OSRMClient` / `OTPClient`; delegation path fires A12 `uk-location-intel` with `{"sources":["isochrone_drive"\|"isochrone_transit"],"isochroneCutoffsMin":[...]}`. Both paths return the exact same payload shape so the LLM never sees a transport distinction. |
+| `ToolContext.osrm_factory` / `otp_factory` | `packages/agent/src/uk_property_agent/tools.py` | Wired from `OSRM_BASE_URL` / `OTP_BASE_URL` env vars. When both are unset and no Apify token is available, the tools raise a clear user-facing error listing both transport options. |
+| `PropertyDossier` + `DossierOptions` + `build_property_dossier(...)` | `packages/agent/src/uk_property_agent/dossier.py` | Top-level Pydantic model covering `location`, `avm`, `ppd`, `neighbourhood`, `crime`, `flood`, `epc`, `planning`. Every block nullable. Builder orchestrates postcodes.io → HMLR/AVM/PPD → Overpass + listed-buildings → police + flood + (optional) EPC + (optional) Idox planning, in parallel, with `asyncio.gather(return_exceptions=True)` so one outage never tanks the whole dossier — failures land in `errors: list[DossierError]`. |
+| `CACHEABLE_SYSTEM_PROMPT` + `build_system_message(...)` | `packages/agent/src/uk_property_agent/prompts.py` | System prompt emitted as an Anthropic content-block with `{"type":"text","cache_control":{"type":"ephemeral","ttl":"5m"}}`. `PropertyAgent(enable_prompt_cache=True, cache_ttl="5m"\|"1h")` by default; override the full message via `system_message=...` for hand-tuned caching. |
+| Apify actor registry expansion | `packages/apify_client/src/uk_property_apify_client/actors.py` | `ActorKey` + `KNOWN_ACTOR_SLUGS` now include `uk-demographics`, `uk-climate-risk`, `uk-location-intel` so delegation can target the full actor fleet. |
+
+### Tests
+
+27 new tests across three files:
+
+* `packages/geo/tests/test_osrm.py` — +6 tests for `radial_grid(...)` + `OSRMClient.isochrone(...)` (URL synthesis, cutoff bucketing, unreachable-point handling, validation).
+* `packages/agent/tests/test_agent_prompt_cache.py` — 10 tests covering the cache-control content-block shape, TTL override, `enable_prompt_cache=False` escape hatch, and `PropertyAgent` wiring.
+* `packages/agent/tests/test_agent_isochrone.py` — 8 tests exercising the local path (OSRM + OTP fakes + postcodes.io resolver), the delegation path (stubbed `ApifyDelegation.resolve`), and the no-transport error paths.
+* `packages/agent/tests/test_agent_dossier.py` — 9 tests with stubs for every seam in `ToolContext`, covering the happy path, postcode failure, LR failure, police failure with others surviving, EPC factory-not-wired, planning-skipped-for-unknown-district, `include_planning=False`, empty-PPD, and severity-min-is-worst semantics.
+
+Real bug fix along the way: `build_property_dossier` wasn't unpacking the
+dual-value tuple from `_run_avm(...)` (which packages AVM + PPD together so
+we only hit HMLR once) — `ppd` was silently dropped. Now the AVM coroutine
+result is destructured and fanned into both `avm=` and `ppd=` before the
+`PropertyDossier.model_validate(...)` call.
+
+---
+
+## 2026-04-19 — Agent v3 (multi-provider routing + per-task model pinning)
+
+v3 generalises the agent's LLM plumbing so the same `PropertyAgent` can
+front Anthropic, OpenAI, or Gemini — with graceful fallback when
+credentials are missing and per-task model pinning for callers who want
+Sonnet-for-narrative / Flash-for-scoring / GPT-for-reasoning on the same
+graph.
+
+### What landed
+
+| Piece | Where | Notes |
+|---|---|---|
+| `Provider` / `TaskKind` / `ProviderSpec` | `packages/agent/src/uk_property_agent/providers.py` | `StrEnum`s + frozen dataclass. `Provider.{ANTHROPIC, OPENAI, GEMINI}`; `TaskKind.{DEFAULT, DOSSIER, ANALYSIS, TOOL_PLAN}`. `ProviderSpec.slug` returns the `provider/model` shorthand used in env overrides. |
+| `resolve_provider(task, *, explicit, env)` | same | Five-level precedence: explicit arg → `AGENT_MODEL_<TASK>` env → `AGENT_MODEL_DEFAULT` env → `AGENT_PROVIDER` env → `AGENT_PROVIDER_CHAIN` first-available. Accepts a `ProviderSpec`, a `Provider` enum, or any `"provider"` / `"provider/model"` string. Raises a single actionable `RuntimeError` listing the three env vars to set when nothing in the chain has credentials. |
+| `build_chat_model(spec)` | same | Lazy-imports `langchain-anthropic` / `langchain-openai` / `langchain-google-genai` per spec. A missing package raises a targeted `ImportError` pointing at the right install extra (`uk-property-agent[openai]` etc.) instead of a deep `ModuleNotFoundError`. |
+| `cache_shape_for(provider)` + `build_system_message(provider=...)` | `prompts.py` | Anthropic → content-block list with `cache_control: {type: ephemeral, ttl}`. OpenAI + Gemini → plain string (both providers auto-cache eligible prefixes). Legacy callers that don't pass `provider` keep the Anthropic shape for backwards compat. |
+| `has_credentials` / `select_available_provider` / `describe_env` | `providers.py` | Credential probing for diagnostics + fallback. Gemini accepts either `GOOGLE_API_KEY` **or** `GEMINI_API_KEY`. `describe_env()` returns a JSON-safe dict used by `property-agent env --json`. |
+| `PropertyAgent(provider=..., task=...)` | `agent.py` | Replaces the hard-coded Anthropic instantiation. Resolved `ProviderSpec` is available on `agent.provider_spec`. `model=` and `provider=` are mutually exclusive to prevent double-resolution. |
+| CLI surface | `cli.py` | `ask --provider openai/gpt-4o` / `--model claude-3-5-haiku-20241022` / `--task dossier` / `--show-provider`, `env --json`. `ask` prints `[provider] anthropic/claude-sonnet-4-5-20250929 (temperature=0.2)` to stderr when `--show-provider` is set so operators can audit what's running without re-reading env. |
+| Optional-deps groups | `pyproject.toml` | `[anthropic]` / `[openai]` / `[gemini]` / `[all]` so the default install stays slim. |
+
+### Tests
+
+38 new / updated tests split across two files:
+
+* `packages/agent/tests/test_agent_providers.py` — **29 tests** covering credential detection (including the Gemini dual-key behaviour), all five levels of the resolution precedence, bare-slug + `provider/model` parsing, custom `AGENT_PROVIDER_CHAIN` ordering, the `RuntimeError` for fully-empty env, cache-shape routing per provider, `build_system_message` payload shape, `describe_env` output, lazy `ImportError` with the right install-extra name, and `PropertyAgent` end-to-end with a fake resolver/builder pair so the integration is exercised without real LLM SDKs.
+* `packages/agent/tests/test_agent_cli.py` — **7 tests** updated for the new CLI surface: provider detection in `env`, JSON emission in `env --json`, `--show-provider` stderr line, `--task` forwarding, and the `SystemExit` path when no provider credentials exist.
+
+Two real gaps fixed during test wiring:
+
+1. `_default_chain()` previously read `os.environ` directly, so
+   tests injecting `AGENT_PROVIDER_CHAIN` via a dict were ignored.
+   Now accepts an optional `env` parameter and `select_available_provider`
+   / `describe_env` thread it through.
+2. `resolve_provider(explicit="gemini")` fell through to the fallback
+   chain because `_parse_provider_model_slug` treated any no-slash
+   value as a bare model name. `resolve_provider` now tries the
+   Provider enum first for no-slash strings, then falls back to the
+   old model-name path.
+
+Additional chores during this pass:
+
+* `Provider` + `TaskKind` migrated from `str, Enum` to `enum.StrEnum`
+  (ruff `UP042`); minimum Python is already 3.12 so `StrEnum` is
+  available.
+* Added `--import-mode=importlib` to `uk-property-apify/pyproject.toml`'s
+  pytest `addopts` so the three actor packages with `tests/__init__.py`
+  (`auctions`, `climate-risk`, `location-intel`) stop colliding at
+  collection time. Every per-actor test run already worked in isolation;
+  this fixes the monorepo-wide `uv run pytest` command.
+
+---
+
+## 2026-04-19 — Agent v3 streaming narrative
+
+The final v3 surface: token-level narrative output so the CLI (and any
+downstream UI — the MCPs, a future SaaS UI) can render prose as it's
+produced instead of showing a spinner while the full response buffers.
+
+### What landed
+
+| Piece | Where | Notes |
+|---|---|---|
+| `PropertyAgent.astream_narrative(question)` | `packages/agent/src/uk_property_agent/agent.py` | `async for chunk in agent.astream_narrative(...)` yields narrative text fragments as the final LLM call produces them. Uses LangGraph's `stream_mode="messages"`, filters chunks through `_is_final_answer_chunk(...)` so the caller only sees prose — no `AIMessageChunk`s that carry `tool_calls` / `tool_call_chunks`, and no `ToolMessageChunk`s from the tool node. Graceful fallback: if the underlying chat model doesn't stream (some fakes, some OpenAI paths), the method still returns a single chunk carrying the full final message so downstream code doesn't have to special-case non-streaming providers. |
+| `PropertyAgent.astream_events(question)` | same | Structured event stream for UIs that want to interleave tool reasoning with streamed prose. Events are tagged dicts: `{"type": "tool_call", "name", "args"}` → `{"type": "tool_result", "tool", "content"}` → one or more `{"type": "narrative_chunk", "text"}` → one final `{"type": "final", "text"}`. Implemented as an orchestrator over `astream(stream_mode="updates")` for graph node events and `astream(stream_mode="messages")` for token-level narrative, unified into a single async iterator. |
+| `PropertyAgent.astream(question)` | same | Stayed in place as the graph-level-updates stream (old behaviour, `stream_mode="updates"`). Renamed-in-docstring to clarify that it returns node update dicts, not tokens. |
+| `property-agent ask --stream` | `packages/agent/src/uk_property_agent/cli.py` | Narrative tokens → `sys.stdout`, tool-call + tool-result events → `sys.stderr` so scripts can pipe stdout cleanly (`property-agent ask --stream "..." > answer.md 2> trace.log`). Without `--stream`, the CLI still uses the plain buffered `ainvoke(...)` path. |
+| `_extract_text_content(message)` + `_is_final_answer_chunk(chunk, metadata)` | `agent.py` | Two small static helpers. `_extract_text_content` normalises LangChain's message-content shape (string vs list-of-content-blocks for Anthropic content arrays) into plain prose. `_is_final_answer_chunk` is the filter that drops tool-calling chunks — checks both `tool_calls` and `tool_call_chunks`, and only admits chunks whose class name starts with `AIMessage*`. |
+
+### Tests
+
+4 new / updated tests across two files:
+
+* `packages/agent/tests/test_agent_graph.py` — 3 new tests.
+  `test_astream_narrative_yields_final_answer_text` verifies the method
+  returns the full final-answer text even with a non-token-streaming
+  fake model (exercises the buffered-fallback path).
+  `test_astream_narrative_skips_tool_call_turn` proves the tool-call
+  `AIMessage` in a two-turn script is filtered out and only the
+  narrative message content is yielded.
+  `test_astream_events_emits_tool_call_then_narrative_then_final`
+  walks the full `tool_call → tool_result → narrative_chunk → final`
+  event sequence.
+* `packages/agent/tests/test_agent_cli.py` — existing
+  `test_ask_streams_and_prints_final` renamed and reshaped to
+  `test_ask_streams_narrative_to_stdout_and_tools_to_stderr`,
+  asserting stdout captures only narrative chunks and stderr
+  captures the tool-call + tool-result lines when `--stream` is set.
+  `_FakeAgent.astream_events` was added to the CLI fake so both the
+  old and new behaviours are testable side-by-side.
+
+### Known follow-ups (not blocking v3)
+
+* When the underlying LLM emits a single `AIMessage` per turn (e.g.
+  `FakeMessagesListChatModel` in tests, or older OpenAI routes),
+  `stream_mode="messages"` yields one chunk at a time instead of
+  token-by-token. The narrative API still works — the caller just
+  receives one big chunk followed by `final` — but real token
+  streaming only kicks in for provider-native streaming endpoints.
+  Documented behaviour, not a defect.
+* LangGraph checkpoints are not yet wired — a fresh `PropertyAgent`
+  instance per question is still the pattern. Adding a checkpointer
+  would enable multi-turn conversation state without re-sending
+  history; deferred to a follow-up session because it's orthogonal
+  to streaming and requires a storage decision (in-memory vs SQLite
+  vs Postgres) that's blocked on the SaaS-vs-CLI call.
+
+---
+
+## 2026-04-19 — A6 `auctions` multi-source dispatch (intel side)
+
+Intel-repo half of the A6 expansion: three new HTML parsers + three new
+source-register clients under `uk-property-scrapers` / `uk-property-apis`,
+all conforming to the `AuctionSourceRegister` protocol Allsop already
+implemented. The `uk-auctions` actor now fans out across every
+`source` in `sources=[]` with per-source error isolation.
+
+### What landed
+
+| Piece | Where | Notes |
+|---|---|---|
+| `AuctionSummary` promoted to `_core.py` + `source: AuctionHouse` + `extra_context: dict[str, Any]` | `packages/apis/src/uk_property_apis/auctions/_core.py` | Single source-agnostic discovery record used across all four sources. Back-compat: Allsop-produced summaries default `source=AuctionHouse.ALLSOP` so legacy call sites keep working. `extra_context` is the per-source escape hatch for fields that don't live on the shared shape (e.g. iamsold's continuous-auction reserve window). |
+| `AuctionFetchResult` | same | Standardised return shape from `AuctionSourceRegister.fetch_auction(...)` — carries the `AuctionSummary` back-reference, the parsed catalogue, and the normalised `list[AuctionLot]`. |
+| `AuctionSourceRegister` Protocol | same | Two-method contract: `list_upcoming_auctions(...)` (discovery) + `fetch_auction(summary, *, page_size, ...)` (per-auction catalogue + lots). Runtime-checkable so A6's `ClientFactories` can validate wiring without forcing a concrete base class on each register implementation. |
+| `AllsopRegister` wrapper around the existing `AllsopClient` | `packages/apis/src/uk_property_apis/auctions/allsop_client.py` | Zero behaviour change for Allsop itself; just re-exposes the existing Allsop pipeline through the new protocol so the actor's dispatch loop doesn't need a `if source == ALLSOP` branch. |
+| `AuctionHouseClient` + `AuctionHouseRegister` | `packages/apis/src/uk_property_apis/auctions/auction_house.py` + `packages/scrapers/src/uk_property_scrapers/auctions/auction_house.py` | Covers [auctionhouse.co.uk](https://www.auctionhouse.co.uk). Discovery page: `GET /national-property-auctions`. Per-auction pages: `GET /{regional-branch}/auction/{slug}`. Parser reads the lot-card grid (address, guide price low/high, auction-house branch, lot number when present, status, sale-method badge). Lot URLs are absolute; no JS hydration required. Live-smoked against 383 lots on the 2026-04 national catalogue (Cameford Court flat at guide £190-£210k). |
+| `SavillsAuctionsClient` + `SavillsAuctionsRegister` | `packages/apis/src/uk_property_apis/auctions/savills.py` + `packages/scrapers/src/uk_property_scrapers/auctions/savills.py` | Covers [savills.com/auctions](https://www.savills.com/auctions). Discovery page: `GET /auctions/upcoming-auctions.html`. Per-auction: `GET /auctions/{date-slug}/list.html?start=0&pagesize=100` — 100 lots/page pagination. Parser also handles Savills' date-range header shape ("12\u201313 March 2026") via a unicode en-dash in the title regex. Live-smoked against 49 lots (Grafton Road flat at guide £575k). |
+| `IamsoldClient` + `IamsoldRegister` | `packages/apis/src/uk_property_apis/auctions/iamsold.py` + `packages/scrapers/src/uk_property_scrapers/auctions/iamsold.py` | Covers [iamsold.com](https://www.iamsold.com). iamsold doesn't run calendar auctions — it runs a rolling "modern method of auction" with per-lot reserve windows. The register synthesises **one** catalogue auction per run, with an end-date anchored to "now + max live window", and the register fans lots out from `GET /properties/live`. Lot cards use "starting bid" rather than "guide price"; parser maps that to `AuctionGuidePrice(qualifier=STARTING_BID)`. Live-smoked: 5 lots (Percival Terrace starting £90k). |
+| `_get_text(url, ...)` on `BaseAPIClient` | `packages/apis/src/uk_property_apis/_core/base_client.py` | Thin wrapper around `_request_raw` that returns the decoded HTML body as `str` (vs `_get_json` which returns parsed JSON). All three new clients use it; kept on the shared base so future HTML-scrape sources don't re-roll. |
+
+### Tests
+
+Parser tests (fixtures based, zero network) + smoke tests (live HTML hit
+during recon) shipped alongside the clients. Existing Allsop tests were
+not disturbed.
+
+* `packages/scrapers/tests/fixtures/auctions/` gained `auction_house/`
+  (index + one auction page), `savills/` (index + two paginated list
+  pages to exercise the offset/pagesize pagination), and `iamsold/`
+  (live properties page) subfolders.
+* `packages/scrapers/tests/test_auctions_*_parser.py` — one file per
+  new source, covering address + guide price + status + sale method
+  parsing, pagination handling (Savills), and the synthetic-auction
+  continuation for iamsold.
+* `packages/apis/tests/test_auctions_*_client.py` — one file per new
+  source, driving `list_upcoming_auctions` + `fetch_auction` through
+  respx-mocked HTML fixtures. Protocol conformance is enforced by an
+  `isinstance(register, AuctionSourceRegister)` assertion in each
+  file so the runtime-checkable protocol isn't silently broken by a
+  type-annotation-only drift.
+
+Apify-side A6 wiring (actor dispatch, input schema, `source` /
+`sources` fields, live smoke) is documented in the sibling
+`uk-property-apify/STATUS.md` entry for the same date.
 
 ---
 

@@ -1,6 +1,6 @@
 # UK Property Intelligence — Master Plan
 
-> Status: **scaffolding phase** — monorepo root + scrapers package underway.
+> Status: **build phase** — see the top-level `STATUS.md` for the live snapshot. As of 2026-04-19: 8 public packages + 1 private shipped, 3 MCPs dual-mode, **12/12 actors code-complete** (A6 `auctions` multi-source dispatch shipped 2026-04-19 covering Allsop + Auction House UK + Savills + iamsold), LangGraph Agent v3 with multi-provider routing + streaming narrative + 23 tools, **1092 intel tests green**.
 > Owner: Kubilay Yavuz
 > Single source of truth — keep this file current as decisions evolve.
 
@@ -143,20 +143,20 @@ packages/
 
 ### Apify actors (12)
 
-| # | Actor | Category | Moat | Indicative price |
-|---|---|---|---|---|
-| A1 | `zoopla-listings` | Listings | Real market gap; existing actors have 36–70% success rates | $1.50 / 1k results |
-| A2 | `rightmove-listings` | Listings | Matches memo23 price floor; completeness play | $0.95 / 1k results |
-| A3 | `onthemarket-listings` | Listings | Third UK portal, completeness | $1.00 / 1k results |
-| A4 | `epc-ct-ppd-unified` | Foundational | **Zero competitors.** EPC + VOA council tax + HMLR Price Paid in one call | $0.015 / address |
-| A5 | `planning-aggregator` | Foundational | IDOX/Civica direct + document downloads (PlanIt aggregates, doesn't fetch docs) | $0.02 / application + $0.005 / doc |
-| A6 | `auctions` | Domain intel | Empty niche: Allsop + Auction House + Savills + iamsold unified | $0.015 / lot |
-| A7 | `landlord-network` | Domain intel | CH flat scrapers exist; graph traversal + PSC cross-ref unique | $0.05 / root company |
-| A8 | `uk-tenders` | Domain intel | Narrowed scope: construction + PropTech + housing CPV codes only | $0.005 / opportunity |
-| A9 | `uk-demographics` | Signals | UK-focused, ONS + Census 2021 + IMD + Nomis + MHCLG projections unified | $0.003 / area |
-| A10 | `uk-avm` | Signals | Middle AVM (±15–20%) via PPD+EPC hedonic + XGBoost | $0.05 / valuation |
-| A11 | `climate-risk` | Signals | Flood + coastal + subsidence + UKCP18 20-yr projections, composite score | $0.01 / postcode |
-| A12 | `location-intel` | Signals | Routing + isochrones + overlays + amenity density + proximity dossier | $0.02 / postcode |
+| # | Actor | Category | Moat | Indicative price | Status |
+|---|---|---|---|---|---|
+| A1 | `zoopla-listings` | Listings | Real market gap; existing actors have 36–70% success rates | $1.50 / 1k results | **Scaffold + run-loop hardened** (retry, proxy rotation, dedupe, concurrency, standardized errors). Awaiting Apify deploy. |
+| A2 | `rightmove-listings` | Listings | Matches memo23 price floor; completeness play | $0.95 / 1k results | **Scaffold + run-loop hardened.** Awaiting Apify deploy. |
+| A3 | `onthemarket-listings` | Listings | Third UK portal, completeness | $1.00 / 1k results | **Scaffold + run-loop hardened.** Awaiting Apify deploy. |
+| A4 | `epc-ct-ppd-unified` | Foundational | **Zero competitors.** EPC + VOA council tax + HMLR Price Paid in one call | $0.015 / address | **Built, 26 tests green.** |
+| A5 | `planning-aggregator` | Foundational | IDOX/Civica direct + document downloads (PlanIt aggregates, doesn't fetch docs) | $0.02 / application + $0.005 / doc | **Built, 53 tests green.** |
+| A6 | `auctions` | Domain intel | Empty niche: Allsop + Auction House + Savills + iamsold unified | $0.015 / lot | **DONE 2026-04-19** — All four sources shipped behind a shared `AuctionSourceRegister` protocol. Live-smoked: Allsop 362 lots, Auction House UK 383 lots, Savills 49 lots, iamsold 5 lots. 50 actor tests + parser + client suites green. |
+| A7 | `landlord-network` | Domain intel | CH flat scrapers exist; graph traversal + PSC cross-ref unique | $0.05 / root company | **Built, 52 tests green.** |
+| A8 | `uk-tenders` | Domain intel | Narrowed scope: construction + PropTech + housing CPV codes only | $0.005 / opportunity | **Built, 35 tests green.** |
+| A9 | `uk-demographics` | Signals | UK-focused, ONS + Census 2021 + IMD + Nomis + MHCLG projections unified | $0.003 / area | **Built, 52 tests green.** |
+| A10 | `uk-avm` | Signals | Middle AVM (±15–20%) via PPD+EPC hedonic + XGBoost | $0.05 / valuation | **Built, 75 tests green, AVM v3 + neighbourhood + HPI shipped.** |
+| A11 | `climate-risk` | Signals | Flood + coastal + subsidence + UKCP18 20-yr projections, composite score | $0.01 / postcode | **Built, 68 tests green, live-smoked.** Coastal / BGS upstream APIs moved - clients raise clear migration errors, A11 surfaces as `partial_errors`. Flood + UKCP18 production-ready today. |
+| A12 | `location-intel` | Signals | Routing + isochrones + overlays + amenity density + proximity dossier | $0.02 / postcode | **Built, 101 tests green, live-smoked** against real postcodes.io + Overpass. OSRM / OTP are optional self-hosted infra and surface as `SkippedSource` when unconfigured. Agent `drive_time_isochrone` + `transit_isochrone` tools now auto-delegate here when `APIFY_API_TOKEN` is set (2026-04-19). |
 
 ### Optional bundle actor (maybe)
 
@@ -206,18 +206,18 @@ A13 — `uk-postcode-dossier` that composes A9+A10+A11+A12 in one call, priced a
 
 ### Priority order (no timings)
 
-1. **Scrapers package** — canonical schema + Zoopla parser + fixture tests (in progress)
-2. **Rightmove + OnTheMarket parsers** — parallel subagents, same schema
-3. **API clients package** — each client is independent, fully parallelizable across subagents
-4. **Geo package** — routing + overlays + proximity, depends on postcodes + OSM clients
-5. **AVM package** — PPD+EPC join pipeline first (the real asset), then Middle accuracy model
+1. **Scrapers package** — canonical schema + Zoopla parser + fixture tests (DONE)
+2. **Rightmove + OnTheMarket parsers** — parallel subagents, same schema (DONE)
+3. **API clients package** — each client is independent, fully parallelizable across subagents (DONE; coastal/BGS clients raise upstream-migration errors pending a rewrite against the new NCERM 2024 schema / replacement data source)
+4. **Geo package** — routing + overlays + proximity, depends on postcodes + OSM clients (v1 DONE; v2 OSRM / OTP routing + `OSRMClient.isochrone` radial-grid + H3 grid DONE 2026-04-19; Shapely polygons still opt-in)
+5. **AVM package** — PPD+EPC join pipeline first (the real asset), then Middle accuracy model (DONE incl. v3: hedonic/quantile/GBM + HPI + neighbourhood)
 6. **Zoopla + Rightmove MCPs** — thin wrappers over the scrapers, dual-mode support
-7. **First Apify listings actor** (Zoopla) — proves the production crawler pattern
-8. **EPC+CT+PPD unified actor** — cheapest revenue, zero competition
-9. **Planning aggregator actor** — IDOX selectors already proven in prior session
-10. **Agent (LangGraph)** — first end-to-end demo
-11. **AVM, Climate Risk, Location Intelligence, Demographics actors** — the signals stack
-12. **Auctions, landlord network, tenders** — domain intel
+7. **First Apify listings actor** (Zoopla) — proves the production crawler pattern (DONE + hardened 2026-04-19)
+8. **EPC+CT+PPD unified actor** — cheapest revenue, zero competition (DONE)
+9. **Planning aggregator actor** — IDOX selectors already proven in prior session (DONE)
+10. **Agent (LangGraph)** — first end-to-end demo (ALPHA **v3 shipped 2026-04-19**: 23 tools incl. `drive_time_isochrone`, `transit_isochrone`, `build_property_dossier`; dual-mode delegation to A10 AVM, A12 location-intel, A5 planning, A7 landlord network; **multi-provider routing across Anthropic / OpenAI / Gemini** with provider-aware prompt-cache shape + per-task model pinning via `AGENT_MODEL_<TASK>` env + `[anthropic]` / `[openai]` / `[gemini]` / `[all]` optional-deps; **streaming narrative output** via `PropertyAgent.astream_narrative(...)` + `astream_events(...)` + CLI `--stream` flag)
+11. **AVM, Climate Risk, Location Intelligence, Demographics, Auctions actors** — the signals + domain-intel stack (A9 + A10 + A11 + A12 + A6 multi-source DONE 2026-04-19)
+12. **Auctions, landlord network, tenders** — domain intel (all DONE: landlord + tenders shipped 2026-04-18, auctions multi-source shipped 2026-04-19)
 13. **Launch push** — blog post, Show HN, LinkedIn, Smithery, Discord community
 
 ### Deploying subagents

@@ -171,6 +171,10 @@ def _cf_pick(notice: dict[str, Any], *keys: str) -> Any:
 def _cf_cpv_codes(notice: dict[str, Any]) -> list[TenderClassification]:
     raw = _cf_pick(notice, "CpvCodes", "cpvCodes") or []
     out: list[TenderClassification] = []
+    # 2026+ CF search results ship ``cpvCodes`` as a single
+    # whitespace-separated string. Split and treat as a list.
+    if isinstance(raw, str):
+        raw = raw.split()
     if isinstance(raw, list):
         for entry in raw:
             if isinstance(entry, str) and entry.strip():
@@ -190,23 +194,40 @@ def _cf_cpv_codes(notice: dict[str, Any]) -> list[TenderClassification]:
 
 
 def _cf_buyer(notice: dict[str, Any]) -> TenderOrg | None:
+    # Pre-2024 CF nested the buyer inside ``Organisation`` / ``organisation``.
+    # The 2026+ search response flattens it to ``organisationName`` + a
+    # top-level ``postcode`` instead.
     org = _cf_pick(notice, "Organisation", "organisation")
-    if not isinstance(org, dict):
-        return None
-    name = org.get("name") or org.get("Name")
+    if isinstance(org, dict):
+        name = org.get("name") or org.get("Name")
+        if not isinstance(name, str) or not name.strip():
+            return None
+        contact = org.get("ContactDetails") or org.get("contactDetails") or {}
+        address_parts: list[str] = []
+        for key in ("AddressLine1", "AddressLine2", "Town", "County", "Postcode"):
+            piece = contact.get(key) if isinstance(contact, dict) else None
+            if isinstance(piece, str) and piece.strip():
+                address_parts.append(piece.strip())
+        postcode = contact.get("Postcode") if isinstance(contact, dict) else None
+        return TenderOrg(
+            name=name.strip(),
+            address=", ".join(address_parts) if address_parts else None,
+            postcode=postcode.strip().upper() if isinstance(postcode, str) else None,
+            country_code="GB",
+        )
+
+    name = _cf_pick(notice, "OrganisationName", "organisationName")
     if not isinstance(name, str) or not name.strip():
         return None
-    contact = org.get("ContactDetails") or org.get("contactDetails") or {}
-    address_parts: list[str] = []
-    for key in ("AddressLine1", "AddressLine2", "Town", "County", "Postcode"):
-        piece = contact.get(key) if isinstance(contact, dict) else None
-        if isinstance(piece, str) and piece.strip():
-            address_parts.append(piece.strip())
-    postcode = contact.get("Postcode") if isinstance(contact, dict) else None
+    postcode = _cf_pick(notice, "Postcode", "postcode")
     return TenderOrg(
         name=name.strip(),
-        address=", ".join(address_parts) if address_parts else None,
-        postcode=postcode.strip().upper() if isinstance(postcode, str) else None,
+        address=None,
+        postcode=(
+            postcode.strip().upper()
+            if isinstance(postcode, str) and postcode.strip()
+            else None
+        ),
         country_code="GB",
     )
 
@@ -228,7 +249,10 @@ def _cf_value(notice: dict[str, Any]) -> TenderValue | None:
 
 def _cf_location(notice: dict[str, Any]) -> TenderLocation | None:
     postcode = _cf_pick(notice, "Postcode", "postcode")
-    region_field = _cf_pick(notice, "Region", "region")
+    # 2026+ search results ship ``regionText`` (human label) alongside
+    # ``region`` (code). Prefer the label when present, since it's what
+    # consumers want to display.
+    region_field = _cf_pick(notice, "RegionText", "regionText", "Region", "region")
     region: str | None = None
     if isinstance(region_field, str) and region_field.strip():
         region = region_field.strip()
@@ -248,15 +272,25 @@ def _cf_location(notice: dict[str, Any]) -> TenderLocation | None:
 def normalise_cf_notice(notice: dict[str, Any]) -> Tender:
     """Map a Contracts Finder ``Notice`` dict to a canonical :class:`Tender`.
 
-    Accepts both the slim ``HitOfNoticeIndex`` payload returned by
-    ``search_notices`` and the full ``FullNotice`` returned by
-    ``get_published_notice``. Missing fields are mapped to ``None`` / the
-    relevant default rather than raising.
+    Accepts all three payload shapes CF has shipped in the life of this
+    client:
+
+    * Pre-2024 "full" notices wrapping content in ``"Notice": {...}``
+    * 2024-era slim ``HitOfNoticeIndex`` payloads (flat)
+    * 2026+ search results which wrap each hit as
+      ``{"score": <float>, "item": {...}}``
+
+    Missing fields are mapped to ``None`` / the relevant default rather
+    than raising.
     """
 
     inner = notice
     if "Notice" in notice and isinstance(notice["Notice"], dict):
         inner = {**notice, **notice["Notice"]}
+    # 2026 search_notices wraps each hit in ``{"score", "item"}`` — the
+    # actual notice payload lives under ``item``. Unwrap transparently.
+    if "item" in inner and isinstance(inner["item"], dict):
+        inner = {**inner, **inner["item"]}
 
     source_id_raw = _cf_pick(inner, "Id", "NoticeId", "id")
     source_id = str(source_id_raw) if source_id_raw is not None else ""

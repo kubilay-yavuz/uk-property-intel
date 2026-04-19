@@ -1,0 +1,134 @@
+{
+  "data": {
+    "results": [
+      {
+        "address1": "Franciscan Road",
+        "address2": null,
+        "address3": "Tooting Bec",
+        "agency_agreement_received_date": null,
+        "allsop_address": "161 Franciscan Road, Tooting Bec, London, SW17 8DJ",
+        "allsop_auctionid": "16fe8330-8a60-11f0-a081-0242ac110002",
+        "allsop_lotid": "cd71fa7a-326c-11f1-b064-0242ac110002",
+        "allsop_lotnumber": 82,
+        "allsop_lotstatus": "Available",
+        "allsop_name": "R260430 383",
+        "allsop_propertyaddress1": "Franciscan Road",
+        "allsop_propertyaddress2": null,
+        "allsop_propertyaddress3": "Tooting Bec",
+        "allsop_propertybyline": "VACANT - Leasehold Self Contained First and Second Floor Maisonette",
+        "allsop_propertycounty": null,
+        "allsop_propertyname": null,
+        "allsop_propertypostcode": "SW17 8DJ",
+        "allsop_propertyregion": null,
+        "allsop_propertytenancy": null,
+        "allsop_propertytenure": "Leasehold",
+        "allsop_propertytown": "London",
+        "allsop_propertytype": [
+          "Flat / Block"
+        ],
+        "auction_date": 1777417200000,
+        "available_at_price": null,
+        "available_at_tick_to_check": false,
+        "building_name": null,
+        "carousel_show": true,
+        "catalogue_type": "residential",
+        "comm_property_types": [],
+        "commercial_property_types": [],
+        "county": null,
+        "current_rent_per_annum": null,
+        "current_rent_per_annum_2": null,
+        "current_rent_per_annum_header_text": null,
+        "current_rent_per_annum_header_text_2": null,
+        "current_rent_per_annum_text": "Vacant Possession",
+        "current_rent_per_annum_text_2": "Vacant Possession",
+        "department": "RES",
+        "early_lot": null,
+        "featured": false,
+        "featured_image_file_id": "03512f16-3417-11f1-9e3b-0242ac110002",
+        "featured_image_path": "03512f16-3417-11f1-9e3b-0242ac110002",
+        "features": [
+          "First Floor - Reception Room, Two Bedrooms, Kitchen, Bathroom/WC, Separate WC",
+          "Second Floor - Two further Bedrooms with ensuite Shower Rooms/WC",
+          "Roof Terrace ",
+          "Lease with approximately 143 years unexpired",
+          "GIA approximately 131.08 sq m (1,411 sq ft)",
+          "**Virtual Tour available below** ",
+          "~~**Six Week Completion**~~"
+        ],
+        "full_address": "161 Franciscan Road, Tooting Bec, London, SW17 8DJ",
+        "guide_price_is_reduced": false,
+        "guide_price_lower": 550000,
+        "guide_price_text": "\u00a3550,000 - \u00a3600,000",
+        "guide_price_upper": 600000,
+        "house_no": "161",
+        "image_file_id": "03512f16-3417-11f1-9e3b-0242ac110002",
+        "income": 0,
+        "is_commercial": false,
+        "is_residential": true,
+        "legal_pack_approved_by": "239124c4-4894-11ed-8503-0242ac110002",
+        "live_addendum": "There are Revised Special Conditions applicable to this Lot dated 13th April 2026.",
+        "live_addendum_updated_at": "2026-04-16 14:55:38",
+        "location": {
+          "lat": "51.42993",
+          "lon": "-0.1566"
+        },
+        "location_shape": {
+          "coordinates": [
+            0,
+            51
+          ],
+          "type": "point"
+        },
+        "lotStatus": "Available",
+        "lot_created_at": "2026-04-07 11:30:30",
+        "lot_number": 82,
+        "lot_number_text": "82",
+        "lot_status": "Available",
+        "lot_type": "residential",
+        "main_byline": "VACANT - Leasehold Self Contained First and Second Floor Maisonette",
+        "market_from_date": "2026-04-07 11:30:30",
+        "net_rent": 0,
+        "net_yield": 0,
+        "postcode": "SW17 8DJ",
+        "postcodeArea": "SW17",
+        "price": "\u00a3550,000 - \u00a3600,000",
+        "price_description": "Guide Price*",
+        "primary_marketed_together_lotid": null,
+        "property_byline": "VACANT - Leasehold Self Contained First and Second Floor Maisonette",
+        "property_class": null,
+        "property_created_at": "2026-04-07 11:30:30",
+        "property_tenancy": "Vacant Possession",
+        "property_tenure": "Leasehold",
+        "property_types": [
+          "Flat / Block"
+        ],
+        "reference": "R260430 383",
+        "region": [
+          "Greater London"
+        ],
+        "rent_notes": null,
+        "resi_property_types": [
+          "Flat / Block"
+        ],
+        "residential_property_types": [
+          "Flat / Block"
+        ],
+        "sales_status_websearch": null,
+        "search_score": null,
+        "show_in_additional_view": false,
+        "sort_price": 550000,
+        "tenancy_table": "{\"rows\":[{\"floor\":\"First\\n\\nSecond\",\"accom\":[\"Reception Room, Two Bedroom, Kitchen, Bathroom/WC, Separate WC\",\"Two further Bedrooms with ensuite Shower Rooms/WC\"],\"gia\":[\"131.08\"],\"c5a20ec6-aade-9cfe-f07b-fb8f7bd8d9fc\":\"C\",\"52f1f00a-3b39-d5e0-8ed3-df077d438588\":\"C\"}],\"headers\":[{\"label\":\"Floor\",\"key\":\"floor\"},{\"label\":\"Accommodation\",\"key\":\"accom\",\"multiple\":true},{\"label\":\"Approx GIA\",\"dimensions\":\"sq m/sq ft\",\"key\":\"gia\",\"hideHeader\":false,\"multiple\":true,\"subtotal\":true,\"total\":true,\"alignment\":\"left\"},{\"label\":\"EPC\",\"key\":\"c5a20ec6-aade-9cfe-f07b-fb8f7bd8d9fc\"},{\"label\":\"Council Tax Band\",\"key\":\"52f1f00a-3b39-d5e0-8ed3-df077d438588\"}]}",
+        "tenancy_table_2": null,
+        "tenant": "{\"rows\":[{\"floor\":\"First\\n\\nSecond\",\"accom\":[\"Reception Room, Two Bedroom, Kitchen, Bathroom/WC, Separate WC\",\"Two further Bedrooms with ensuite Shower Rooms/WC\"],\"gia\":[\"131.08\"],\"c5a20ec6-aade-9cfe-f07b-fb8f7bd8d9fc\":\"C\",\"52f1f00a-3b39-d5e0-8ed3-df077d438588\":\"C\"}],\"headers\":[{\"label\":\"Floor\",\"key\":\"floor\"},{\"label\":\"Accommodation\",\"key\":\"accom\",\"multiple\":true},{\"label\":\"Approx GIA\",\"dimensions\":\"sq m/sq ft\",\"key\":\"gia\",\"hideHeader\":false,\"multiple\":true,\"subtotal\":true,\"total\":true,\"alignment\":\"left\"},{\"label\":\"EPC\",\"key\":\"c5a20ec6-aade-9cfe-f07b-fb8f7bd8d9fc\"},{\"label\":\"Council Tax Band\",\"key\":\"52f1f00a-3b39-d5e0-8ed3-df077d438588\"}]}",
+        "town": "London",
+        "type": null,
+        "type_tenancy": null,
+        "version_id": "f335c33c-399b-11f1-bb12-0242ac110002",
+        "website_price_lower": 600000,
+        "yield": 0
+      }
+    ],
+    "total": 1
+  },
+  "search-uuid": "dyuF9bHh2+5LM7lx1P8y1SkcCpGmq5d5HldelcM0aTQ="
+}

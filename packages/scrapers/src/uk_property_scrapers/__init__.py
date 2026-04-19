@@ -1,6 +1,7 @@
 """uk-property-scrapers - pure-Python parsers for UK property listing sites.
 
-The base package is I/O-free: pass HTML in, get :class:`Listing` models out.
+The base package is I/O-free: pass HTML in, get :class:`Listing` or
+:class:`AuctionLot` models out.
 
 For fetching HTML there are two companion packages:
 
@@ -13,10 +14,15 @@ For fetching HTML there are two companion packages:
   escalation. Used by the hosted Apify actors.
 """
 
-from uk_property_scrapers import onthemarket, rightmove, zoopla
+from uk_property_scrapers import auctions, onthemarket, rightmove, zoopla
 from uk_property_scrapers.schema import (
     Address,
     Agent,
+    AuctionGuidePrice,
+    AuctionHouse,
+    AuctionLot,
+    AuctionLotStatus,
+    AuctionSaleMethod,
     Image,
     Listing,
     ListingFeature,
@@ -31,11 +37,16 @@ from uk_property_scrapers.schema import (
     TransactionType,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Address",
     "Agent",
+    "AuctionGuidePrice",
+    "AuctionHouse",
+    "AuctionLot",
+    "AuctionLotStatus",
+    "AuctionSaleMethod",
     "Image",
     "Listing",
     "ListingFeature",
@@ -49,6 +60,7 @@ __all__ = [
     "Tenure",
     "TransactionType",
     "__version__",
+    "auctions",
     "onthemarket",
     "rightmove",
     "zoopla",

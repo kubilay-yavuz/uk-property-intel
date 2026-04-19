@@ -70,3 +70,36 @@ async def test_stations_near() -> None:
     async with FloodClient() as client:
         sts = await client.stations_near(51.0, -0.2, distance_km=1)
     assert sts[0].label == "Gauge"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_stations_near_tolerates_url_stagescale() -> None:
+    """The live ``/id/stations`` list endpoint returns ``stageScale`` and
+    ``measures`` as **bare URL strings** (the caller has to follow them to
+    expand) when records are unexpanded. We must accept those instead of
+    rejecting the row with a validation error (regression for the live
+    smoke-test failure we hit during climate-risk actor bring-up)."""
+    respx.get(re.compile(r"https://environment\.data\.gov\.uk/flood-monitoring/id/stations\?.*")).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "@id": "http://example/station/s1",
+                        "label": "Gauge",
+                        "lat": 51.0,
+                        "long": -0.2,
+                        "stageScale": "http://example/station/s1/stageScale",
+                        "measures": "http://example/station/s1/measures",
+                    }
+                ]
+            },
+        ),
+    )
+    async with FloodClient() as client:
+        sts = await client.stations_near(51.0, -0.2, distance_km=1)
+    assert len(sts) == 1
+    assert sts[0].label == "Gauge"
+    assert sts[0].stage_scale == "http://example/station/s1/stageScale"
+    assert sts[0].measures == "http://example/station/s1/measures"

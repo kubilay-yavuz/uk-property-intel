@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
+from pydantic import ValidationError
 from selectolax.parser import HTMLParser, Node
 
 from uk_property_scrapers.schema import (
@@ -195,12 +196,20 @@ def parse_search_results(
     *,
     transaction_type: TransactionType = TransactionType.UNKNOWN,
 ) -> list[Listing]:
-    """Parse an OnTheMarket search-results page into SEARCH_CARD listings."""
+    """Parse an OnTheMarket search-results page into SEARCH_CARD listings.
+
+    Cards that fail :class:`Listing` validation (eg. a block-of-flats entry
+    advertising 100+ bedrooms) are silently skipped so one bad card doesn't
+    kill the whole page.
+    """
     tree = HTMLParser(html)
     cards = _find_listing_cards(tree)
     listings: list[Listing] = []
     for card in cards:
-        listing = _parse_search_card(card, hinted_type=transaction_type)
+        try:
+            listing = _parse_search_card(card, hinted_type=transaction_type)
+        except ValidationError:
+            continue
         if listing is not None:
             listings.append(listing)
     return listings

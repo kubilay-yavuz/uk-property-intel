@@ -14,7 +14,14 @@ It exercises every free public API we depend on end-to-end:
 - OSM Overpass (no auth)
 - EPC Open Data Communities (BasicAuth - skipped if creds missing)
 - Companies House (API key - skipped if missing)
-- ONS Nomis (no auth)
+- ONS Beta API (no auth)
+- ONS Nomis labour market (no auth)
+- Natural England MAGIC WFS (no auth)
+- Contracts Finder tenders (no auth)
+- VOA council tax (scraper)
+- Idox ArcGIS + HTML planning (scrapers)
+- Rightmove / Zoopla / OnTheMarket HTML parsers (fixture-driven)
+- listings live GETs (block-expected, report only)
 
 Run:
 
@@ -58,6 +65,9 @@ from uk_property_apis.idox import (
     ArcGISPlanningClient,
     HTMLPlanningClient,
 )
+from uk_property_apis.natural_england import NaturalEnglandClient
+from uk_property_apis.ons_nomis import NomisClient
+from uk_property_apis.tenders import ContractsFinderClient, TenderQuery
 from uk_property_geo import AmenityCategory, OverpassClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -643,7 +653,129 @@ async def probe_ons() -> ProbeResult:
             dims=len(meta.dimensions),
         )
 
-    return await _timed("ONS Nomis", _body)
+    return await _timed("ONS Beta", _body)
+
+
+async def probe_nomis() -> ProbeResult:
+    """Exercise the ONS Nomis labour-market client against a real geography.
+
+    We deliberately call the generic :meth:`NomisClient.observations` rather
+    than a convenience wrapper (``claimant_count`` etc.) because Nomis needs
+    both a ``TYPE{N}`` pseudo-geography *and* the correct measure codelist
+    for each dataset. The measure codes baked into the convenience methods
+    predate the live-smoke harness and are wrong for the real API — known
+    gap, tracked in STATUS.md. The generic transport is what production
+    code relies on, so that's what we canary.
+
+    ``TYPE499`` is Nomis's pseudo-geography for "all countries" — it always
+    returns a non-empty result for ``NM_162_1`` (claimant count).
+    """
+
+    async def _body() -> ProbeResult:
+        dataset = "NM_162_1"
+        async with NomisClient() as client:
+            result = await client.observations(
+                dataset,
+                "TYPE499",
+                measures="20100,20200,20201",
+                date="latest",
+            )
+        if not result.observations:
+            raise RuntimeError(
+                f"{dataset}?geography=TYPE499 returned 0 observations - "
+                "upstream drift"
+            )
+        first = result.observations[0]
+        geo = first.get("geography", {}).get("description")
+        value = first.get("obs_value", {}).get("value")
+        time_period = first.get("time", {}).get("value")
+        return _ok(
+            "ONS Nomis labour",
+            f"observations({dataset}, TYPE499, measures=20100) -> "
+            f"{len(result.observations)} obs, first={geo!r} @ {time_period} "
+            f"= {value}",
+            0,
+            count=len(result.observations),
+            sample_geography=geo,
+            sample_time=time_period,
+            sample_value=value,
+        )
+
+    return await _timed("ONS Nomis labour", _body)
+
+
+async def probe_natural_england() -> ProbeResult:
+    """Hit the Natural England MAGIC WFS for a known-designated location.
+
+    New Forest National Park (50.90, -1.58) reliably intersects the
+    ``National_Parks_England`` layer, so it's the single-call canary we
+    use. If zero designations come back we treat it as a fail — that
+    means the WFS has moved again.
+    """
+
+    async def _body() -> ProbeResult:
+        lat, lng = 50.90, -1.58
+        async with NaturalEnglandClient() as client:
+            designations = await client.designations_at(lat, lng)
+
+        np_count = len(designations.national_parks)
+        aonb_count = len(designations.aonb)
+        sssi_count = len(designations.sssi)
+        aw_count = len(designations.ancient_woodland)
+
+        if np_count == 0:
+            # New Forest *is* a National Park. Zero hits means the WFS
+            # layer name or schema changed and we need to react.
+            raise RuntimeError(
+                "designations_at(New Forest) returned 0 national parks — WFS drift likely"
+            )
+        first = designations.national_parks[0].name
+        return _ok(
+            "Natural England WFS",
+            f"designations_at(New Forest) -> NP={np_count} ({first!r}) "
+            f"AONB={aonb_count} SSSI={sssi_count} AW={aw_count} "
+            "(green_belt migrated to planning.data.gov.uk)",
+            0,
+            national_parks=np_count,
+            aonbs=aonb_count,
+            sssis=sssi_count,
+            ancient_woodlands=aw_count,
+        )
+
+    return await _timed("Natural England WFS", _body)
+
+
+async def probe_tenders() -> ProbeResult:
+    """POST a real search against Contracts Finder.
+
+    A broad property-CPV query (``45200000`` - building construction)
+    reliably returns tender rows. We don't pin a count — CF results
+    churn — but we do insist on at least one hit so parsing is exercised.
+    """
+
+    async def _body() -> ProbeResult:
+        async with ContractsFinderClient() as cf:
+            tenders = await cf.search_tenders(
+                TenderQuery(cpv_codes=["45200000"], limit=10)
+            )
+        if not tenders:
+            raise RuntimeError(
+                "Contracts Finder returned 0 tenders for CPV 45200000 — "
+                "schema drift or upstream outage"
+            )
+        sample = tenders[0]
+        title = (sample.title or "")[:60]
+        return _ok(
+            "Contracts Finder",
+            f"search_tenders(CPV=45200000, limit=10) -> {len(tenders)} rows, "
+            f"first={sample.source_id!r} title={title!r}",
+            0,
+            count=len(tenders),
+            first_id=sample.source_id,
+            first_title=title,
+        )
+
+    return await _timed("Contracts Finder", _body)
 
 
 PROBES: dict[str, ProbeFn] = {
@@ -654,6 +786,9 @@ PROBES: dict[str, ProbeFn] = {
     "planning": probe_planning,
     "overpass": probe_overpass,
     "ons": probe_ons,
+    "nomis": probe_nomis,
+    "natural_england": probe_natural_england,
+    "tenders": probe_tenders,
     "voa": probe_voa,
     "idox_arcgis_lambeth": probe_planning_arcgis_lambeth,
     "idox_html_westminster": probe_planning_html_westminster,

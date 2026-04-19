@@ -11,7 +11,29 @@ import httpx
 from uk_property_apis._core.base_client import BaseAPIClient
 from uk_property_apis.coastal.models import ErosionZone, ShorelinePrediction
 
+# NCERM migrated to a new versioned URL in Jan 2025. The old
+# ``/spatialdata/`` WFS endpoint is retired (returns the Defra Next.js
+# portal HTML for any WFS request). The new endpoint is at
+# ``/spatialdata/ncern-national-2024/wfs`` but exposes a completely
+# different feature-type surface (14 layers by year + climate-scenario
+# rather than a single SMP layer with PREDICTION_20/50/100 properties)
+# and publishes its geometries in British National Grid (EPSG:27700)
+# rather than WGS-84, so DWITHIN/INTERSECTS with lat/lng requires a
+# pyproj coordinate transformation.
+#
+# Until the NCERM-2024 client is shipped, this module serves as a
+# lightweight shim that raises a clear migration error so downstream
+# consumers (the climate-risk actor, the agent) can surface it as a
+# ``partial_errors`` entry rather than silently returning empty data.
 _BASE_URL = "https://environment.data.gov.uk/spatialdata/"
+
+_NCERM_MIGRATION_MESSAGE = (
+    "NCERM upstream migrated to /spatialdata/ncern-national-2024/wfs "
+    "(Jan 2025) with a new layer surface "
+    "(NCERM_SMP_{2055|2105}_{0|70|95}CC etc.) and EPSG:27700 "
+    "geometries. The current CoastalErosionClient points at the retired "
+    "endpoint; use the FloodClient + EA flood_areas in the meantime."
+)
 
 _LAYER_EROSION_RISK = "Environment_Agency:NCERM_ErosionRisk"
 _LAYER_SMP = "Environment_Agency:NCERM_SMP_Management"
@@ -83,8 +105,15 @@ class CoastalErosionClient(BaseAPIClient):
         *,
         distance_km: float = 5.0,
     ) -> list[ErosionZone]:
-        """Return coastal erosion risk zones within ``distance_km`` of the coordinate."""
-        distance_m = distance_km * 1000.0
+        """Return coastal erosion risk zones within ``distance_km`` of the coordinate.
+
+        .. warning::
+            NCERM migrated away from the ``Environment_Agency:NCERM_*``
+            layers in Jan 2025; this call will raise a :class:`RuntimeError`
+            until the 2024-schema client lands.
+        """
+        raise RuntimeError(_NCERM_MIGRATION_MESSAGE)
+        distance_m = distance_km * 1000.0  # pragma: no cover - legacy path
         data = await self._get(
             "",
             params=_wfs_params_dwithin(_LAYER_EROSION_RISK, lat, lng, distance_m),
@@ -128,8 +157,14 @@ class CoastalErosionClient(BaseAPIClient):
         """Return shoreline management prediction at the coordinate for the given epoch.
 
         Returns ``None`` if no SMP polygon intersects the point.
+
+        .. warning::
+            NCERM migrated to a new layer surface (``NCERM_SMP_{2055|2105}_*``
+            by climate scenario) in Jan 2025; this call will raise a
+            :class:`RuntimeError` until the 2024-schema client lands.
         """
-        data = await self._get(
+        raise RuntimeError(_NCERM_MIGRATION_MESSAGE)
+        data = await self._get(  # pragma: no cover - legacy path
             "",
             params=_wfs_params_intersects(_LAYER_SMP, lat, lng),
         )

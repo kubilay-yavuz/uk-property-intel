@@ -1,14 +1,9 @@
 """H3 hexagonal grid utilities for UK property intelligence."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from pydantic import BaseModel, ConfigDict
 
 from uk_property_geo.distance import Point
-
-if TYPE_CHECKING:
-    pass
 
 try:
     import h3 as _h3

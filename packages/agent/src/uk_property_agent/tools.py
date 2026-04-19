@@ -36,7 +36,13 @@ from uk_property_apis import (
 )
 from uk_property_apis.idox import KNOWN_COUNCILS, get_council
 from uk_property_avm import comparables_from_ppd, estimate_value
-from uk_property_geo import AmenityCategory, OverpassClient, haversine_m
+from uk_property_geo import (
+    AmenityCategory,
+    OSRMClient,
+    OTPClient,
+    OverpassClient,
+    haversine_m,
+)
 from uk_property_listings import (
     SearchQuery,
     SimpleCrawler,
@@ -66,6 +72,11 @@ class ToolContext:
 
     In production, most fields default to "construct from env". In tests,
     callers pass pre-built clients or respx-mocked ones.
+
+    ``osrm_factory`` and ``otp_factory`` are optional — the isochrone
+    tools fall back to delegating via the hosted ``uk-location-intel``
+    actor when they aren't set. Wire them explicitly when the agent runs
+    in a process with local OSRM / OTP tiles available.
     """
 
     crawler_factory: Callable[[], Any] = field(default=_default_crawler_factory)
@@ -79,19 +90,36 @@ class ToolContext:
     overpass_factory: Callable[[], OverpassClient] = OverpassClient
     arcgis_planning_factory: Callable[[CouncilConfig], ArcGISPlanningClient] = ArcGISPlanningClient
     html_planning_factory: Callable[[CouncilConfig], HTMLPlanningClient] = HTMLPlanningClient
+    osrm_factory: Callable[[], OSRMClient] | None = None
+    otp_factory: Callable[[], OTPClient] | None = None
 
     @classmethod
     def from_env(cls) -> ToolContext:
         """Build a context wired to production factories.
 
-        EPC and Companies House factories are added only if the relevant
-        credentials are present; otherwise those tools are silently dropped.
+        Optional factories are only added when their credentials /
+        service URLs are present:
+
+        * EPC + Companies House follow their existing API-key gates.
+        * OSRM is enabled when ``OSRM_BASE_URL`` is set.
+        * OTP is enabled when ``OTP_BASE_URL`` is set.
+
+        Without those URLs, the isochrone tools fall back to delegating
+        to the hosted ``uk-location-intel`` actor (if
+        ``APIFY_API_TOKEN`` is configured) or raise a user-facing error
+        asking for one of the two transports.
         """
         ctx = cls()
         if os.getenv("EPC_AUTH_EMAIL") and os.getenv("EPC_AUTH_TOKEN"):
             ctx.epc_factory = EPCClient
         if os.getenv("COMPANIES_HOUSE_API_KEY"):
             ctx.companies_house_factory = CompaniesHouseClient
+        osrm_url = (os.getenv("OSRM_BASE_URL") or "").strip()
+        if osrm_url:
+            ctx.osrm_factory = lambda url=osrm_url: OSRMClient(base_url=url)
+        otp_url = (os.getenv("OTP_BASE_URL") or "").strip()
+        if otp_url:
+            ctx.otp_factory = lambda url=otp_url: OTPClient(base_url=url)
         return ctx
 
 
@@ -273,6 +301,79 @@ class LandlordGraphArgs(BaseModel):
     max_companies: int = Field(50, ge=1, le=500)
     max_officers: int = Field(200, ge=1, le=1000)
     expand_corporate_pscs: bool = Field(default=True)
+
+
+class BuildDossierArgs(BaseModel):
+    """Input for :func:`build_property_dossier`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    postcode: str = Field(..., min_length=2, description="UK postcode to profile.")
+    property_type: Literal["D", "S", "T", "F", "O"] | None = Field(
+        default=None,
+        description="Tighten the AVM band by property type (D/S/T/F/O).",
+    )
+    years_back: int = Field(default=3, ge=1, le=10)
+    amenity_radius_m: float = Field(default=800.0, ge=100.0, le=5_000.0)
+    listed_radius_m: float = Field(default=500.0, ge=100.0, le=5_000.0)
+    crime_months_back: int = Field(default=3, ge=1, le=24)
+    include_planning: bool = Field(
+        default=True,
+        description=(
+            "Fetch recent planning applications for the postcode's council "
+            "(only if the council is in the public registry - currently "
+            "Lambeth & Westminster)."
+        ),
+    )
+    planning_since_days: int = Field(default=30, ge=1, le=365)
+
+
+class DriveIsochroneArgs(BaseModel):
+    """Input for :func:`drive_time_isochrone`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    postcode: str | None = Field(
+        default=None,
+        min_length=2,
+        description="UK postcode, resolved via postcodes.io. Either this or lat+lng.",
+    )
+    lat: float | None = Field(default=None, ge=-90.0, le=90.0)
+    lng: float | None = Field(default=None, ge=-180.0, le=180.0)
+    cutoffs_min: list[int] = Field(
+        default_factory=lambda: [15, 30],
+        description="Travel-time cutoffs in minutes (1..120).",
+    )
+    profile: Literal["driving", "walking", "cycling"] = Field(
+        default="driving",
+        description="OSRM profile. Default 'driving'.",
+    )
+    grid_step_m: float = Field(
+        default=500.0,
+        ge=50.0,
+        le=5_000.0,
+        description="Radial-grid spacing in metres. Smaller = finer but slower.",
+    )
+
+
+class TransitIsochroneArgs(BaseModel):
+    """Input for :func:`transit_isochrone`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    postcode: str | None = Field(default=None, min_length=2)
+    lat: float | None = Field(default=None, ge=-90.0, le=90.0)
+    lng: float | None = Field(default=None, ge=-180.0, le=180.0)
+    cutoffs_min: list[int] = Field(
+        default_factory=lambda: [15, 30, 45],
+        description="Travel-time cutoffs in minutes.",
+    )
+    mode: Literal[
+        "TRANSIT,WALK", "BUS,WALK", "RAIL,WALK", "WALK", "BICYCLE"
+    ] = Field(
+        default="TRANSIT,WALK",
+        description="OTP transit mode combination.",
+    )
 
 
 def _listing_to_dict(listing: Any) -> dict[str, Any]:
@@ -952,6 +1053,188 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
             ),
             args_schema=PlanningDetailArgs,
             coroutine=_lookup_planning_application,
+        )
+    )
+
+    async def _drive_time_isochrone(
+        postcode: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
+        cutoffs_min: list[int] | None = None,
+        profile: str = "driving",
+        grid_step_m: float = 500.0,
+    ) -> dict[str, Any]:
+        from uk_property_agent.isochrone import (
+            maybe_delegate_drive_isochrone,
+            run_drive_isochrone,
+        )
+
+        cutoffs = cutoffs_min or [15, 30]
+        if not cutoffs or any(c <= 0 or c > 120 for c in cutoffs):
+            raise ValueError("cutoffs_min must be a list of ints in 1..120")
+
+        delegated = await maybe_delegate_drive_isochrone(
+            postcode=postcode,
+            lat=lat,
+            lng=lng,
+            cutoffs_min=cutoffs,
+            profile=profile,
+            grid_step_m=grid_step_m,
+            max_radius_m=None,
+        )
+        if delegated is not None:
+            return delegated
+
+        if ctx.osrm_factory is None:
+            raise ValueError(
+                "drive_time_isochrone needs either a self-hosted OSRM service "
+                "(set OSRM_BASE_URL) or a configured uk-location-intel Apify "
+                "delegation (set APIFY_API_TOKEN + APIFY_USERNAME or "
+                "APIFY_ACTOR_UK_LOCATION_INTEL)."
+            )
+
+        return await run_drive_isochrone(
+            postcode=postcode,
+            lat=lat,
+            lng=lng,
+            cutoffs_min=cutoffs,
+            profile=profile,
+            grid_step_m=grid_step_m,
+            postcodes_factory=ctx.postcodes_factory,
+            osrm_factory=ctx.osrm_factory,
+        )
+
+    tools.append(
+        StructuredTool.from_function(
+            name="drive_time_isochrone",
+            description=(
+                "Compute how far someone can drive, walk, or cycle from a "
+                "UK postcode (or explicit lat/lng) within the requested "
+                "travel-time cutoffs. Backed by a self-hosted OSRM service "
+                "via a radial-grid /table lookup; automatically delegates "
+                "to the hosted uk-location-intel Apify actor when "
+                "APIFY_API_TOKEN is configured. Returns reachable grid "
+                "points + max-reach distance per cutoff (no polygon — "
+                "polygonisation is the caller's choice). Use for "
+                "'30-minute commute from Cambridge' questions."
+            ),
+            args_schema=DriveIsochroneArgs,
+            coroutine=_drive_time_isochrone,
+        )
+    )
+
+    async def _transit_isochrone(
+        postcode: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
+        cutoffs_min: list[int] | None = None,
+        mode: str = "TRANSIT,WALK",
+    ) -> dict[str, Any]:
+        from uk_property_agent.isochrone import (
+            maybe_delegate_transit_isochrone,
+            run_transit_isochrone,
+        )
+
+        cutoffs = cutoffs_min or [15, 30, 45]
+        if not cutoffs or any(c <= 0 or c > 180 for c in cutoffs):
+            raise ValueError("cutoffs_min must be a list of ints in 1..180")
+
+        delegated = await maybe_delegate_transit_isochrone(
+            postcode=postcode,
+            lat=lat,
+            lng=lng,
+            cutoffs_min=cutoffs,
+            mode=mode,  # type: ignore[arg-type]
+        )
+        if delegated is not None:
+            return delegated
+
+        if ctx.otp_factory is None:
+            raise ValueError(
+                "transit_isochrone needs either a self-hosted OpenTripPlanner "
+                "service (set OTP_BASE_URL) or a configured uk-location-intel "
+                "Apify delegation (set APIFY_API_TOKEN + APIFY_USERNAME or "
+                "APIFY_ACTOR_UK_LOCATION_INTEL)."
+            )
+
+        return await run_transit_isochrone(
+            postcode=postcode,
+            lat=lat,
+            lng=lng,
+            cutoffs_min=cutoffs,
+            mode=mode,  # type: ignore[arg-type]
+            postcodes_factory=ctx.postcodes_factory,
+            otp_factory=ctx.otp_factory,
+        )
+
+    tools.append(
+        StructuredTool.from_function(
+            name="transit_isochrone",
+            description=(
+                "Public-transit isochrone polygons from a UK postcode (or "
+                "explicit lat/lng) using OpenTripPlanner. Supports "
+                "combined transit modes ('TRANSIT,WALK', 'BUS,WALK', "
+                "'RAIL,WALK'), walk-only, or bicycle. Returns one GeoJSON "
+                "polygon per cutoff. Auto-delegates to the hosted "
+                "uk-location-intel Apify actor when APIFY_API_TOKEN is "
+                "set. Use for 'what's 30-min by Tube from Canary Wharf' "
+                "style questions."
+            ),
+            args_schema=TransitIsochroneArgs,
+            coroutine=_transit_isochrone,
+        )
+    )
+
+    async def _build_property_dossier(
+        postcode: str,
+        property_type: str | None = None,
+        years_back: int = 3,
+        amenity_radius_m: float = 800.0,
+        listed_radius_m: float = 500.0,
+        crime_months_back: int = 3,
+        include_planning: bool = True,
+        planning_since_days: int = 30,
+    ) -> dict[str, Any]:
+        from uk_property_agent.dossier import (
+            DossierOptions,
+            build_property_dossier,
+        )
+
+        options = DossierOptions(
+            property_type=property_type,  # type: ignore[arg-type]
+            years_back=years_back,
+            amenity_radius_m=amenity_radius_m,
+            listed_radius_m=listed_radius_m,
+            crime_months_back=crime_months_back,
+            include_planning=include_planning,
+            planning_since_days=planning_since_days,
+        )
+        dossier = await build_property_dossier(
+            postcode=postcode,
+            ctx=ctx,
+            options=options,
+        )
+        return dossier.model_dump(mode="json", exclude_none=True)
+
+    tools.append(
+        StructuredTool.from_function(
+            name="build_property_dossier",
+            description=(
+                "One-shot structured PropertyDossier for a UK postcode. "
+                "Fans out across postcodes.io, HM Land Registry PPD, the "
+                "rolling-median AVM, OSM Overpass amenities (rail / bus / "
+                "supermarket / school / park / GP / pharmacy by default), "
+                "listed-building counts, data.police.uk crime stats, EA "
+                "flood warnings, EPC register (if creds), and recent "
+                "Idox planning applications (when the postcode's council "
+                "is in the public reference registry). Returns a typed, "
+                "JSON-dumped object with per-source error rows — partial "
+                "failures don't tank the whole dossier. Use instead of "
+                "issuing 6-7 separate tool calls; the builder runs them "
+                "in parallel."
+            ),
+            args_schema=BuildDossierArgs,
+            coroutine=_build_property_dossier,
         )
     )
 

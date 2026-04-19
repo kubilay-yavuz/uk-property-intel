@@ -196,6 +196,32 @@ class BaseAPIClient:
             raise ValidationError(msg)
         return data
 
+    async def _get_text(
+        self,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> str:
+        """GET and return the raw response body as text.
+
+        Used by the HTML-based auction clients (Auction House UK,
+        Savills, iamsold) where the upstream shape is an HTML page, not
+        a JSON document. Applies the same retry / rate-limit / 5xx
+        handling as :meth:`_get` so callers don't re-implement the
+        resilience layer.
+        """
+
+        try:
+            response = await self._raw_request(
+                "GET", path, params=params, headers=headers
+            )
+        except httpx.HTTPStatusError as exc:
+            self._map_http_error(exc.response)
+        if response.status_code >= 400:
+            self._map_http_error(response)
+        return response.text
+
     async def _get_with_response(
         self,
         path: str,

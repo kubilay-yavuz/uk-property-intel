@@ -52,17 +52,17 @@ class TestZooplaSearchUrl:
 class TestRightmoveSearchUrl:
     def test_sale_uses_property_for_sale(self) -> None:
         url = build_rightmove_search_url(SearchQuery(location="Cambridge"))
-        assert url.startswith("https://www.rightmove.co.uk/property-for-sale/find.html?")
-        assert "searchLocation=cambridge" in url
+        assert url == "https://www.rightmove.co.uk/property-for-sale/Cambridge.html"
 
     def test_rent_uses_property_to_rent(self) -> None:
         url = build_rightmove_search_url(SearchQuery(location="Oxford", transaction="rent"))
-        assert "/property-to-rent/find.html" in url
+        assert url == "https://www.rightmove.co.uk/property-to-rent/Oxford.html"
 
     def test_price_and_bed_filters(self) -> None:
         url = build_rightmove_search_url(
             SearchQuery(location="Cambridge", min_price=200_000, max_price=500_000, min_beds=3)
         )
+        assert url.startswith("https://www.rightmove.co.uk/property-for-sale/Cambridge.html?")
         assert "minPrice=200000" in url
         assert "maxPrice=500000" in url
         assert "minBedrooms=3" in url
@@ -73,8 +73,12 @@ class TestRightmoveSearchUrl:
         page2 = build_rightmove_search_url(query, page=2)
         page4 = build_rightmove_search_url(query, page=4)
         assert "index=" not in page1
-        assert "index=24" in page2
-        assert "index=72" in page4
+        assert "?index=24" in page2
+        assert "?index=72" in page4
+
+    def test_multiword_location_is_title_cased(self) -> None:
+        url = build_rightmove_search_url(SearchQuery(location="Milton Keynes"))
+        assert url == "https://www.rightmove.co.uk/property-for-sale/Milton-Keynes.html"
 
 
 class TestOnTheMarketSearchUrl:

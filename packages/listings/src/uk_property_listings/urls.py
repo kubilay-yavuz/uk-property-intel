@@ -39,15 +39,17 @@ def build_zoopla_search_url(query: SearchQuery, *, page: int = 1) -> str:
 def build_rightmove_search_url(query: SearchQuery, *, page: int = 1) -> str:
     """Construct a Rightmove search URL.
 
-    Note: Rightmove's "production" search uses an internal ``locationIdentifier``
-    token rather than a readable slug. For human-facing queries we use the
-    ``/property-for-sale/`` / ``/property-to-rent/`` endpoints which accept a
-    town name directly via ``searchLocation``; this is what Rightmove's own
-    autocomplete falls back to.
+    Rightmove's current production search takes the form
+    ``/property-for-sale/{Location}.html`` (or ``/property-to-rent/…``).
+    The legacy ``find.html?searchLocation=X`` variant now serves a
+    "we couldn't find that place" disambiguation page, so we use the
+    path-based format here. The location slug is title-cased so
+    ``"milton keynes"`` becomes ``"Milton-Keynes"`` — Rightmove is
+    case-insensitive but the canonical URLs it emits use this shape.
     """
     path = "property-for-sale" if query.transaction == "sale" else "property-to-rent"
-    slug = _slugify(query.location).replace("-", "+")
-    qs = [f"searchLocation={slug}"]
+    slug = _rightmove_location_slug(query.location)
+    qs: list[str] = []
     if query.min_price is not None:
         qs.append(f"minPrice={query.min_price}")
     if query.max_price is not None:
@@ -58,7 +60,19 @@ def build_rightmove_search_url(query: SearchQuery, *, page: int = 1) -> str:
         qs.append(f"maxBedrooms={query.max_beds}")
     if page > 1:
         qs.append(f"index={(page - 1) * 24}")
-    return f"https://www.rightmove.co.uk/{path}/find.html?{'&'.join(qs)}"
+    query_string = f"?{'&'.join(qs)}" if qs else ""
+    return f"https://www.rightmove.co.uk/{path}/{slug}.html{query_string}"
+
+
+def _rightmove_location_slug(value: str) -> str:
+    """Slugify ``value`` for Rightmove's ``/property-for-sale/{slug}.html`` path.
+
+    Normalises to ``Title-Case-Hyphenated`` which mirrors how Rightmove's
+    own navigation emits the canonical URL (``/property-for-sale/Milton-Keynes.html``
+    rather than the all-lower ``milton-keynes``).
+    """
+    slug = _slugify(value)
+    return "-".join(part.capitalize() for part in slug.split("-") if part)
 
 
 def build_onthemarket_search_url(query: SearchQuery, *, page: int = 1) -> str:

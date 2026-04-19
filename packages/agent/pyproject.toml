@@ -31,6 +31,22 @@ anthropic = [
     "langchain-anthropic>=0.3",
     "anthropic>=0.40",
 ]
+openai = [
+    "langchain-openai>=0.2",
+    "openai>=1.40",
+]
+gemini = [
+    "langchain-google-genai>=2.0",
+    "google-genai>=0.8",
+]
+all = [
+    "langchain-anthropic>=0.3",
+    "anthropic>=0.40",
+    "langchain-openai>=0.2",
+    "openai>=1.40",
+    "langchain-google-genai>=2.0",
+    "google-genai>=0.8",
+]
 
 [project.scripts]
 property-agent = "uk_property_agent.cli:main"

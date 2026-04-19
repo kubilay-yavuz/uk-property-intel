@@ -6,9 +6,15 @@ import re
 import httpx
 import pytest
 import respx
-
 from uk_property_geo.distance import Point
-from uk_property_geo.osrm import NearestResult, OSRMClient, Route, TravelTimeMatrix
+from uk_property_geo.osrm import (
+    DriveIsochrone,
+    NearestResult,
+    OSRMClient,
+    Route,
+    TravelTimeMatrix,
+    radial_grid,
+)
 
 _BASE = "http://localhost:5000"
 
@@ -229,3 +235,103 @@ async def test_route_geometry_optional() -> None:
     async with OSRMClient(_BASE) as client:
         route = await client.route(Point(lat=51.5, lng=-0.1), Point(lat=51.51, lng=-0.11))
     assert route.geometry is None
+
+
+class TestRadialGrid:
+    def test_grid_includes_origin(self) -> None:
+        points = radial_grid(51.5, -0.1, step_m=500.0, max_radius_m=1000.0)
+        assert (51.5, -0.1) in points
+
+    def test_grid_point_density_scales_with_radius(self) -> None:
+        inner_step = radial_grid(51.5, -0.1, step_m=500.0, max_radius_m=500.0)
+        outer_step = radial_grid(51.5, -0.1, step_m=500.0, max_radius_m=2000.0)
+        assert len(outer_step) > len(inner_step)
+
+    def test_grid_rejects_invalid_step(self) -> None:
+        with pytest.raises(ValueError):
+            radial_grid(51.5, -0.1, step_m=0.0, max_radius_m=500.0)
+
+    def test_grid_rejects_invalid_radius(self) -> None:
+        with pytest.raises(ValueError):
+            radial_grid(51.5, -0.1, step_m=500.0, max_radius_m=0.0)
+
+
+class TestIsochrone:
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_isochrone_buckets_points_by_cutoff(self) -> None:
+        def _handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            dest_coords = url.split("/table/v1/driving/")[1].split("?")[0]
+            coord_count = len(dest_coords.split(";"))
+            durations = [0.0] + [
+                60.0 * (i + 1) for i in range(coord_count - 1)
+            ]
+            return httpx.Response(
+                200, json={"durations": [durations], "distances": []}
+            )
+
+        respx.get(re.compile(r"http://localhost:5000/table/v1/driving/.*")).mock(
+            side_effect=_handler
+        )
+
+        async with OSRMClient(_BASE) as client:
+            iso = await client.isochrone(
+                Point(lat=51.5, lng=-0.1),
+                cutoffs_min=[5, 10],
+                grid_step_m=500.0,
+                max_radius_m=1500.0,
+            )
+
+        assert isinstance(iso, DriveIsochrone)
+        assert iso.cutoffs_min == [5, 10]
+        assert iso.grid_step_m == 500.0
+        assert iso.grid_max_radius_m == 1500.0
+        five_min = iso.reachable_count_by_cutoff[5]
+        ten_min = iso.reachable_count_by_cutoff[10]
+        assert five_min <= ten_min
+        assert ten_min >= 1
+        assert iso.max_reach_distance_m_by_cutoff[10] >= iso.max_reach_distance_m_by_cutoff[5]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_isochrone_skips_unreachable_points(self) -> None:
+        def _handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            dest_coords = url.split("/table/v1/driving/")[1].split("?")[0]
+            coord_count = len(dest_coords.split(";"))
+            durations: list[float | None] = [0.0]
+            for i in range(coord_count - 1):
+                durations.append(None if i % 3 == 0 else 120.0)
+            return httpx.Response(
+                200, json={"durations": [durations], "distances": []}
+            )
+
+        respx.get(re.compile(r"http://localhost:5000/table/v1/driving/.*")).mock(
+            side_effect=_handler
+        )
+
+        async with OSRMClient(_BASE) as client:
+            iso = await client.isochrone(
+                Point(lat=51.5, lng=-0.1),
+                cutoffs_min=[5],
+                grid_step_m=500.0,
+                max_radius_m=1000.0,
+            )
+
+        reachable_points = iso.reachable_points_by_cutoff[5]
+        assert all(p.duration_s == 0.0 or p.duration_s == 120.0 for p in reachable_points)
+
+    @pytest.mark.asyncio
+    async def test_isochrone_rejects_empty_cutoffs(self) -> None:
+        async with OSRMClient(_BASE) as client:
+            with pytest.raises(ValueError):
+                await client.isochrone(Point(lat=51.5, lng=-0.1), cutoffs_min=[])
+
+    @pytest.mark.asyncio
+    async def test_isochrone_rejects_non_positive_cutoffs(self) -> None:
+        async with OSRMClient(_BASE) as client:
+            with pytest.raises(ValueError):
+                await client.isochrone(
+                    Point(lat=51.5, lng=-0.1), cutoffs_min=[0, 10]
+                )

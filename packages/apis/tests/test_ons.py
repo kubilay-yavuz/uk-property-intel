@@ -119,19 +119,37 @@ async def test_unemployment_by_local_authority(monkeypatch: pytest.MonkeyPatch) 
 @respx.mock
 async def test_census_table_happy() -> None:
     respx.get(
-        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS001/editions/2021/versions/1/observations\?.*"),
-    ).mock(return_value=httpx.Response(200, json={"observations": [{"observation": "5000"}], "dimensions": {}, "total_observations": 1}))
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS001/editions/2021/versions/1/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "observations": [199943, 4293],
+                "dimensions": [
+                    {"dimension_name": "ltla", "options_count": 1},
+                    {"dimension_name": "residence_type", "options_count": 2},
+                ],
+                "total_observations": 2,
+            },
+        ),
+    )
     async with ONSClient() as client:
         out = await client.census_table("TS001", "E09000001")
-    assert out.total_observations == 1
+    assert out.total_observations == 2
+    assert out.observations == [199943, 4293]
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_population_happy() -> None:
     respx.get(
-        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS001/editions/2021/versions/1/observations\?.*"),
-    ).mock(return_value=httpx.Response(200, json={"observations": [], "dimensions": {}, "total_observations": 0}))
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS001/editions/2021/versions/1/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"observations": [], "dimensions": [], "total_observations": 0},
+        ),
+    )
     async with ONSClient() as client:
         out = await client.population("E01000001")
     assert out.observations == []
@@ -141,19 +159,29 @@ async def test_population_happy() -> None:
 @respx.mock
 async def test_household_composition_happy() -> None:
     respx.get(
-        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS003/editions/2021/versions/1/observations\?.*"),
-    ).mock(return_value=httpx.Response(200, json={"observations": [{"observation": "120"}], "dimensions": {}, "total_observations": 1}))
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS003/editions/2021/versions/1/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"observations": [120], "dimensions": [], "total_observations": 1},
+        ),
+    )
     async with ONSClient() as client:
         out = await client.household_composition("E02000001")
-    assert out.observations[0]["observation"] == "120"
+    assert out.observations == [120]
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_housing_tenure_happy() -> None:
     respx.get(
-        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS044/editions/2021/versions/1/observations\?.*"),
-    ).mock(return_value=httpx.Response(200, json={"observations": [], "dimensions": {}, "total_observations": 0}))
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS044/editions/2021/versions/1/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"observations": [], "dimensions": [], "total_observations": 0},
+        ),
+    )
     async with ONSClient() as client:
         out = await client.housing_tenure("E09000014")
     assert out.total_observations == 0
@@ -163,8 +191,13 @@ async def test_housing_tenure_happy() -> None:
 @respx.mock
 async def test_ethnic_group_happy() -> None:
     respx.get(
-        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS021/editions/2021/versions/1/observations\?.*"),
-    ).mock(return_value=httpx.Response(200, json={"observations": [], "dimensions": {}, "total_observations": 0}))
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS021/editions/2021/versions/1/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"observations": [], "dimensions": [], "total_observations": 0},
+        ),
+    )
     async with ONSClient() as client:
         out = await client.ethnic_group("E09000001")
     assert out.total_observations == 0
@@ -174,8 +207,13 @@ async def test_ethnic_group_happy() -> None:
 @respx.mock
 async def test_qualifications_happy() -> None:
     respx.get(
-        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS067/editions/2021/versions/1/observations\?.*"),
-    ).mock(return_value=httpx.Response(200, json={"observations": [], "dimensions": {}, "total_observations": 0}))
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS067/editions/2021/versions/1/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"observations": [], "dimensions": [], "total_observations": 0},
+        ),
+    )
     async with ONSClient() as client:
         out = await client.qualifications("E09000001")
     assert out.total_observations == 0
@@ -185,8 +223,13 @@ async def test_qualifications_happy() -> None:
 @respx.mock
 async def test_census_table_custom_edition_version() -> None:
     respx.get(
-        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS001/editions/2022/versions/2/observations\?.*"),
-    ).mock(return_value=httpx.Response(200, json={"observations": [], "dimensions": {}, "total_observations": 0}))
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS001/editions/2022/versions/2/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"observations": [], "dimensions": [], "total_observations": 0},
+        ),
+    )
     async with ONSClient() as client:
         out = await client.census_table("TS001", "E09000001", edition="2022", version=2)
     assert out.observations == []
@@ -207,16 +250,37 @@ async def test_census_table_404() -> None:
 @respx.mock
 async def test_population_multiple_observations() -> None:
     respx.get(
-        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS001/editions/2021/versions/1/observations\?.*"),
-    ).mock(return_value=httpx.Response(200, json={
-        "observations": [{"observation": "1000"}, {"observation": "2000"}],
-        "dimensions": {"geography": {"options": []}},
-        "total_observations": 2,
-    }))
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS001/editions/2021/versions/1/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "observations": [1000, 2000],
+                "dimensions": [{"dimension_name": "ltla", "options_count": 1}],
+                "total_observations": 2,
+            },
+        ),
+    )
     async with ONSClient() as client:
         out = await client.population("E01000001")
     assert out.total_observations == 2
     assert len(out.observations) == 2
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_census_table_area_type_override() -> None:
+    respx.get(
+        re.compile(r"https://api\.beta\.ons\.gov\.uk/v1/datasets/TS044/editions/2021/versions/1/json\?.*"),
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"observations": [42], "dimensions": [], "total_observations": 1},
+        ),
+    )
+    async with ONSClient() as client:
+        out = await client.census_table("TS044", "E92000001", area_type="ctry")
+    assert out.total_observations == 1
 
 
 @pytest.mark.asyncio

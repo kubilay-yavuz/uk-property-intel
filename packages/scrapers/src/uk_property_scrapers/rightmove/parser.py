@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
+from pydantic import ValidationError
 from selectolax.parser import HTMLParser, Node
 
 from uk_property_scrapers.schema import (
@@ -175,12 +176,22 @@ def parse_search_results(
     *,
     transaction_type: TransactionType = TransactionType.UNKNOWN,
 ) -> list[Listing]:
-    """Parse a Rightmove search-results page into ``SEARCH_CARD`` listings."""
+    """Parse a Rightmove search-results page into ``SEARCH_CARD`` listings.
+
+    Individual cards that fail :class:`Listing` validation (eg. a future
+    schema-drift quirk) are silently skipped so one bad card doesn't nuke
+    the whole page — the counter-pressure on silent drop is the
+    ``listings live`` / actor-level smoke, which will notice when a run
+    consistently yields zero cards.
+    """
     tree = HTMLParser(html)
     cards = _find_listing_cards(tree)
     listings: list[Listing] = []
     for card in cards:
-        listing = _parse_search_card(card, hinted_type=transaction_type)
+        try:
+            listing = _parse_search_card(card, hinted_type=transaction_type)
+        except ValidationError:
+            continue
         if listing is not None:
             listings.append(listing)
     return listings
@@ -397,6 +408,13 @@ def _parse_search_card(card: Node, *, hinted_type: TransactionType) -> Listing |
             baths = _parse_int(
                 _clean_whitespace(bath_span.text(strip=True)) if bath_span else None
             )
+    # Large counts (>100) are development-block cards ("197 studios available")
+    # rather than single properties; keep them as null so the card still emits
+    # without tripping the per-listing schema bounds.
+    if beds is not None and beds > 100:
+        beds = None
+    if baths is not None and baths > 100:
+        baths = None
 
     property_type = (
         _infer_property_type(property_type_raw.lower())

@@ -40,11 +40,14 @@ from uk_property_geo.naptan import (
     TransportStop,
 )
 from uk_property_geo.osrm import (
+    DriveIsochrone,
+    IsochronePoint,
     NearestResult,
     OSRMClient,
     Route,
     RouteStep,
     TravelTimeMatrix,
+    radial_grid,
 )
 from uk_property_geo.otp import (
     Isochrone,
@@ -73,8 +76,10 @@ __all__ = [
     "AmenityCategory",
     "AmenityHit",
     "BoundingBox",
+    "DriveIsochrone",
     "HexCell",
     "Isochrone",
+    "IsochronePoint",
     "Itinerary",
     "Leg",
     "NaPTANLookup",
@@ -103,5 +108,6 @@ __all__ = [
     "hex_ring",
     "parse_elements",
     "point_to_h3",
+    "radial_grid",
     "sort_by_distance",
 ]

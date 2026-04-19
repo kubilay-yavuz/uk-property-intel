@@ -121,19 +121,30 @@ class ONSClient(BaseAPIClient):
         *,
         edition: str = "2021",
         version: int = 1,
+        area_type: str = "ltla",
     ) -> ONSObservationsResponse:
         """Return Census 2021 observations for a specific table and geography code.
 
-        Calls ``/datasets/{table_id}/editions/{edition}/versions/{version}/observations``
-        with ``ltla={geography}`` as the dimension filter (most Census tables use ``ltla``
-        for LSOA/MSOA/LA geographies).
+        Calls ``/datasets/{table_id}/editions/{edition}/versions/{version}/json``
+        with ``?area-type={area_type},{geography}`` — this is the flexible
+        geography endpoint (the legacy ``/observations`` endpoint returns
+        500s for Census 2021 tables because it demands every non-geo
+        dimension be filtered, which defeats the point of the fan-out).
+
+        ``area_type`` defaults to ``ltla`` (local authority) and can be
+        flipped to ``ctry``, ``rgn``, ``msoa``, ``lsoa``, etc. — see the
+        per-table dimensions via ``/population-types/UR/dimensions``.
+
+        The returned :class:`ONSObservationsResponse` carries the full
+        cube: ``dimensions`` describes the axes (including their
+        categories / labels / option IDs), and ``observations`` is a
+        flat numeric list aligned with the cartesian product of the
+        axis orderings.
         """
-        return await self.observations(
-            table_id,
-            edition=edition,
-            version=version,
-            dimension_filters={"ltla": geography},
-        )
+        path = f"datasets/{table_id}/editions/{edition}/versions/{version}/json"
+        params = {"area-type": f"{area_type},{geography}"}
+        payload = await self._get(path, params=params)
+        return self._validate_model(ONSObservationsResponse, payload)
 
     async def population(self, geography: str) -> ONSObservationsResponse:
         """Census 2021 TS001 — usual resident population by area."""

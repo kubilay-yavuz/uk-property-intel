@@ -23,14 +23,18 @@ KNOWN_ACTOR_SLUGS: Final[tuple[str, ...]] = (
     "onthemarket-listings",
     "epc-ct-ppd-unified",
     "planning-aggregator",
+    "uk-auctions",
     "landlord-network",
     "uk-tenders",
+    "uk-demographics",
     "uk-avm",
+    "uk-climate-risk",
+    "uk-location-intel",
 )
 """Tuple of every actor slug shipped under ``uk-property-apify/actors/``.
 
-Ordered by actor number (A1..A10 minus A6 which is still TODO) so the output
-of :func:`list` round-trips to the project-plan tables without surprise.
+Ordered by actor number (A1..A12) so the output of :func:`list` round-trips to
+the project-plan tables without surprise.
 """
 
 
@@ -40,9 +44,13 @@ ActorKey = Literal[
     "onthemarket-listings",
     "epc-ct-ppd-unified",
     "planning-aggregator",
+    "uk-auctions",
     "landlord-network",
     "uk-tenders",
+    "uk-demographics",
     "uk-avm",
+    "uk-climate-risk",
+    "uk-location-intel",
 ]
 """Literal alias for every slug in :data:`KNOWN_ACTOR_SLUGS`.
 

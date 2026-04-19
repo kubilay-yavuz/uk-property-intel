@@ -87,6 +87,7 @@ _COLUMN_MAP = {
     "LSOA name (2011)": "lsoa_name",
     "Local Authority District code (2019)": "la_code",
     "Local Authority District name (2019)": "la_name",
+    # Short synonyms accepted for pre-cleaned mirrors.
     "Index of Multiple Deprivation (IMD) Rank": "imd_rank",
     "Index of Multiple Deprivation (IMD) Decile": "imd_decile",
     "Income Rank": "income_rank",
@@ -96,6 +97,18 @@ _COLUMN_MAP = {
     "Crime Rank": "crime_rank",
     "Barriers to Housing and Services Rank": "housing_rank",
     "Living Environment Rank": "living_environment_rank",
+    # Canonical GOV.UK "File 7" column names (with the
+    # "(where 1 is most deprived)" suffix on ranks and the "10% of
+    # LSOAs" suffix on deciles).
+    "Index of Multiple Deprivation (IMD) Rank (where 1 is most deprived)": "imd_rank",
+    "Index of Multiple Deprivation (IMD) Decile (where 1 is most deprived 10% of LSOAs)": "imd_decile",
+    "Income Rank (where 1 is most deprived)": "income_rank",
+    "Employment Rank (where 1 is most deprived)": "employment_rank",
+    "Education, Skills and Training Rank (where 1 is most deprived)": "education_rank",
+    "Health Deprivation and Disability Rank (where 1 is most deprived)": "health_rank",
+    "Crime Rank (where 1 is most deprived)": "crime_rank",
+    "Barriers to Housing and Services Rank (where 1 is most deprived)": "housing_rank",
+    "Living Environment Rank (where 1 is most deprived)": "living_environment_rank",
 }
 
 _REQUIRED_COLS = [

@@ -24,9 +24,13 @@ class TestKnownActorSlugs:
             "onthemarket-listings",
             "epc-ct-ppd-unified",
             "planning-aggregator",
+            "uk-auctions",
             "landlord-network",
             "uk-tenders",
+            "uk-demographics",
             "uk-avm",
+            "uk-climate-risk",
+            "uk-location-intel",
         ]:
             assert slug in KNOWN_ACTOR_SLUGS, f"{slug!r} must be registered"
 
@@ -37,9 +41,13 @@ class TestKnownActorSlugs:
             "onthemarket-listings",
             "epc-ct-ppd-unified",
             "planning-aggregator",
+            "uk-auctions",
             "landlord-network",
             "uk-tenders",
+            "uk-demographics",
             "uk-avm",
+            "uk-climate-risk",
+            "uk-location-intel",
         )
 
 
