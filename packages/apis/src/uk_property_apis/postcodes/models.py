@@ -131,3 +131,44 @@ class OutcodeLookupResponse(BaseModel):
 
     status: int
     result: OutcodeResult | None = None
+
+
+class PlaceResult(BaseModel):
+    """OS Open Names place returned by ``GET /places``.
+
+    ``name_1`` is the canonical place name; ``local_type`` discriminates
+    between cities, towns, villages, hamlets and other features — useful
+    for disambiguating e.g. "Cambridge" (city in Cambridgeshire) from
+    "Cambridge" (village in Gloucestershire).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    code: str | None = None
+    name_1: str | None = None
+    name_1_lang: str | None = None
+    name_2: str | None = None
+    name_2_lang: str | None = None
+    local_type: str | None = None
+    outcode: str | None = None
+    county_unitary: str | None = None
+    county_unitary_type: str | None = None
+    district_borough: str | None = None
+    district_borough_type: str | None = None
+    region: str | None = None
+    country: str | None = None
+    longitude: float | None = None
+    latitude: float | None = None
+    eastings: int | None = None
+    northings: int | None = None
+    min_eastings: int | None = None
+    max_eastings: int | None = None
+    min_northings: int | None = None
+    max_northings: int | None = None
+
+
+class PlaceSearchResponse(BaseModel):
+    """Wrapper for ``GET /places`` search."""
+
+    status: int
+    result: list[PlaceResult] | None = None

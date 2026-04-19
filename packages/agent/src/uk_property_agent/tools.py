@@ -11,15 +11,17 @@ injection makes the tools deterministically testable without live networks.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import re
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from uk_property_apis import (
     ApplicationDetail,
     ArcGISPlanningClient,
@@ -123,6 +125,51 @@ class ToolContext:
         return ctx
 
 
+_UK_POSTCODE_PATTERN = re.compile(
+    r"^\s*[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}\s*$",
+    re.IGNORECASE,
+)
+
+
+def _validate_uk_postcode(value: str) -> str:
+    """Reject anything that isn't a UK postcode shape.
+
+    The regex matches the standard UK shapes — ``AA9A 9AA``, ``A9A 9AA``,
+    ``A9 9AA``, ``A99 9AA``, ``AA9 9AA``, ``AA99 9AA`` — with or without
+    the separating space. The goal is not perfect validity (the authoritative
+    check is postcodes.io itself) but to fail-fast when the LLM passes a
+    place name like ``"Cambridge"`` or ``"London"`` to a postcode-typed
+    tool. The ``ValidationError`` is caught by LangGraph's ``ToolNode``
+    and relayed back to the model as a ``ToolMessage`` explaining how to
+    recover — no HTTP round-trip is wasted on a guaranteed 404.
+    """
+
+    if not _UK_POSTCODE_PATTERN.match(value):
+        raise ValueError(
+            f"{value!r} is not a UK postcode. Expected shapes like "
+            "'CB1 2JW', 'SW1A 1AA', or 'M1 1AE'. Place names such as "
+            "'Cambridge' or 'London' are not accepted here — call "
+            "`find_postcodes_for_place` first to resolve a place name "
+            "to one or more postcodes, then retry with a resolved "
+            "postcode."
+        )
+    return value
+
+
+UkPostcode = Annotated[str, AfterValidator(_validate_uk_postcode)]
+"""Pydantic string type that accepts only full UK postcodes.
+
+Use for every tool field that flows into ``postcodes.io``. Pairs with
+:data:`_POSTCODE_FIELD_DESC` for a consistent message the LLM can parse.
+"""
+
+_POSTCODE_FIELD_DESC = (
+    "Full UK postcode such as 'CB1 2JW' or 'SW1A 1AA'. Must NOT be a "
+    "place name like 'Cambridge' or 'London' — call "
+    "`find_postcodes_for_place` first if you only have a place name."
+)
+
+
 class SearchListingsArgs(BaseModel):
     """Shared input schema for portal search tools."""
 
@@ -139,7 +186,30 @@ class SearchListingsArgs(BaseModel):
 
 class PostcodeArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    postcode: str = Field(..., min_length=2)
+    postcode: UkPostcode = Field(..., description=_POSTCODE_FIELD_DESC)
+
+
+class FindPostcodesForPlaceArgs(BaseModel):
+    """Input for :func:`find_postcodes_for_place`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Free-text place name: city, town, village, or neighbourhood "
+            "(e.g. 'Cambridge', 'Canary Wharf', 'Hackney Wick'). Matched "
+            "against OS Open Names via postcodes.io. Do NOT pass a "
+            "postcode here — use `lookup_postcode` for that."
+        ),
+    )
+    limit: int = Field(
+        5,
+        ge=1,
+        le=10,
+        description="Maximum place matches to return (ordered by OS ranking).",
+    )
 
 
 class LatLngArgs(BaseModel):
@@ -186,10 +256,11 @@ class CompanySubresourceArgs(BaseModel):
 
 class EstimatePropertyValueArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    postcode: str = Field(
+    postcode: UkPostcode = Field(
         ...,
-        min_length=2,
-        description="Target UK postcode. Normalised internally.",
+        description=(
+            "Target UK postcode — normalised internally. " + _POSTCODE_FIELD_DESC
+        ),
     )
     property_type: Literal["D", "S", "T", "F", "O"] | None = Field(
         default=None,
@@ -209,13 +280,13 @@ class EstimatePropertyValueArgs(BaseModel):
 
 class DistanceBetweenPostcodesArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    from_postcode: str = Field(..., min_length=2)
-    to_postcode: str = Field(..., min_length=2)
+    from_postcode: UkPostcode = Field(..., description="Origin " + _POSTCODE_FIELD_DESC)
+    to_postcode: UkPostcode = Field(..., description="Destination " + _POSTCODE_FIELD_DESC)
 
 
 class AmenitiesNearPostcodeArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    postcode: str = Field(..., min_length=2)
+    postcode: UkPostcode = Field(..., description=_POSTCODE_FIELD_DESC)
     categories: list[str] = Field(
         default_factory=lambda: [AmenityCategory.RAIL_STATION.value],
         description=("One or more categories from: " + ", ".join(c.value for c in AmenityCategory)),
@@ -308,7 +379,10 @@ class BuildDossierArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    postcode: str = Field(..., min_length=2, description="UK postcode to profile.")
+    postcode: UkPostcode = Field(
+        ...,
+        description="UK postcode to profile. " + _POSTCODE_FIELD_DESC,
+    )
     property_type: Literal["D", "S", "T", "F", "O"] | None = Field(
         default=None,
         description="Tighten the AVM band by property type (D/S/T/F/O).",
@@ -333,10 +407,12 @@ class DriveIsochroneArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    postcode: str | None = Field(
+    postcode: UkPostcode | None = Field(
         default=None,
-        min_length=2,
-        description="UK postcode, resolved via postcodes.io. Either this or lat+lng.",
+        description=(
+            "UK postcode, resolved via postcodes.io. Either this or lat+lng. "
+            + _POSTCODE_FIELD_DESC
+        ),
     )
     lat: float | None = Field(default=None, ge=-90.0, le=90.0)
     lng: float | None = Field(default=None, ge=-180.0, le=180.0)
@@ -361,7 +437,13 @@ class TransitIsochroneArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    postcode: str | None = Field(default=None, min_length=2)
+    postcode: UkPostcode | None = Field(
+        default=None,
+        description=(
+            "UK postcode, resolved via postcodes.io. Either this or lat+lng. "
+            + _POSTCODE_FIELD_DESC
+        ),
+    )
     lat: float | None = Field(default=None, ge=-90.0, le=90.0)
     lng: float | None = Field(default=None, ge=-180.0, le=180.0)
     cutoffs_min: list[int] = Field(
@@ -516,12 +598,83 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
         StructuredTool.from_function(
             name="lookup_postcode",
             description=(
-                "Look up geography for a UK postcode (lat/lng, ward, district, "
-                "country, region). Essential to resolve a postcode to lat/lng "
-                "before calling spatial tools like crime or listed buildings."
+                "Look up geography for a **full UK postcode** (lat/lng, ward, "
+                "district, country, region). Input must be a complete "
+                "postcode like 'CB1 2JW' or 'SW1A 1AA' — a place name "
+                "('Cambridge', 'London') will be rejected by input validation. "
+                "For place names, call `find_postcodes_for_place` first and "
+                "then pass one of the returned postcodes. Essential to resolve "
+                "a postcode to lat/lng before calling spatial tools like "
+                "crime or listed buildings."
             ),
             args_schema=PostcodeArgs,
             coroutine=_lookup_postcode,
+        )
+    )
+
+    async def _find_postcodes_for_place(
+        query: str,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        client = ctx.postcodes_factory()
+        async with client:
+            places = await client.search_places(query, limit=limit)
+            if not places:
+                return {"query": query, "count": 0, "matches": []}
+
+            # For each place with coordinates, fetch a few nearby
+            # postcodes in parallel so the agent can pick one without a
+            # follow-up turn. Bounded by ``limit`` already, so this is at
+            # most 10 /postcodes round-trips — cheap against postcodes.io.
+            async def _nearby(place: Any) -> list[str]:
+                if place.latitude is None or place.longitude is None:
+                    return []
+                try:
+                    resp = await client.reverse_geocode(
+                        place.latitude, place.longitude, radius_m=1000
+                    )
+                except Exception:
+                    return []
+                return [p.postcode for p in (resp.result or [])[:5]]
+
+            nearby_lists = await asyncio.gather(*(_nearby(p) for p in places))
+
+        matches: list[dict[str, Any]] = []
+        for place, nearby in zip(places, nearby_lists, strict=True):
+            matches.append(
+                {
+                    "name": place.name_1,
+                    "local_type": place.local_type,
+                    "county_unitary": place.county_unitary,
+                    "district_borough": place.district_borough,
+                    "region": place.region,
+                    "country": place.country,
+                    "latitude": place.latitude,
+                    "longitude": place.longitude,
+                    "nearby_postcodes": nearby,
+                }
+            )
+
+        return {"query": query, "count": len(matches), "matches": matches}
+
+    tools.append(
+        StructuredTool.from_function(
+            name="find_postcodes_for_place",
+            description=(
+                "Resolve a UK place name (city, town, village, neighbourhood) "
+                "to one or more postcodes + coordinates via OS Open Names and "
+                "postcodes.io. Each match returns name / local_type / region "
+                "/ country / lat / lng plus up to 5 nearby postcodes. Call "
+                "this FIRST whenever the user gives a place name instead of "
+                "a postcode — e.g. 'Cambridge', 'Canary Wharf', 'Hackney "
+                "Wick' — then feed one of the returned postcodes into "
+                "`lookup_postcode`, `sold_prices_for_postcode`, "
+                "`amenities_near_postcode`, or `build_property_dossier`. "
+                "Also useful for disambiguation (e.g. Cambridge the city in "
+                "Cambridgeshire vs. Cambridge the village in Gloucestershire)."
+            ),
+            args_schema=FindPostcodesForPlaceArgs,
+            coroutine=_find_postcodes_for_place,
         )
     )
 

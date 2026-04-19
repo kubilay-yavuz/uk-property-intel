@@ -298,29 +298,42 @@ def _prepare_chainlit_runtime_dir() -> Path:
     """Seed ``~/.uk-property-agent/web/`` with our bundled Chainlit config.
 
     Chainlit reads ``.chainlit/config.toml`` and ``chainlit.md`` from
-    the current working directory. We want:
+    the current working directory, and serves static assets from a
+    sibling ``public/`` directory (``/public/<file>``). We want:
 
-    * Consistent branding (app name, description, dark theme) every
-      time the user runs ``property-agent serve``, regardless of
-      where they ran it from.
+    * Consistent branding (app name, description, dark theme, custom
+      CSS, logo, avatar) every time the user runs
+      ``property-agent serve``, regardless of where they ran it from.
     * Idempotent behaviour — seeding must not stomp on config the
       user has edited, but must create missing files on first run.
     * No pollution of the repo / temp dirs that stick around.
 
-    So we pick ``~/.uk-property-agent/web/`` as a stable per-user
-    home, copy our shipped defaults if the target files are missing,
-    and leave them alone otherwise.
+    Seeding policy:
+
+    * ``.chainlit/config.toml`` and ``chainlit.md`` — **seed if
+      missing**. These are user-editable branding / copy; we don't
+      overwrite once the user has a copy on disk.
+    * ``public/*`` (SVG logos / avatar / favicon / ``custom.css``) —
+      **always overwritten** from the shipped defaults. These are
+      treated as immutable assets that ship with the package; that
+      way a ``pip install --upgrade`` picks up the latest design
+      tokens and CSS bug-fixes automatically.
+
+    Users who want a fully fresh runtime can delete
+    ``~/.uk-property-agent/web`` — seeding will re-create everything
+    on the next launch.
     """
 
     from importlib import resources
 
     home_runtime = Path.home() / ".uk-property-agent" / "web"
     (home_runtime / ".chainlit").mkdir(parents=True, exist_ok=True)
+    (home_runtime / "public").mkdir(parents=True, exist_ok=True)
+
+    defaults = resources.files("uk_property_agent").joinpath("_web_defaults")
 
     config_dst = home_runtime / ".chainlit" / "config.toml"
     md_dst = home_runtime / "chainlit.md"
-
-    defaults = resources.files("uk_property_agent").joinpath("_web_defaults")
     config_src = defaults.joinpath("chainlit_config.toml")
     md_src = defaults.joinpath("chainlit.md")
 
@@ -328,6 +341,13 @@ def _prepare_chainlit_runtime_dir() -> Path:
         config_dst.write_text(config_src.read_text(encoding="utf-8"), encoding="utf-8")
     if not md_dst.exists():
         md_dst.write_text(md_src.read_text(encoding="utf-8"), encoding="utf-8")
+
+    public_src = defaults.joinpath("public")
+    public_dst = home_runtime / "public"
+    for asset in public_src.iterdir():
+        if asset.is_file():
+            text = asset.read_text(encoding="utf-8")
+            (public_dst / asset.name).write_text(text, encoding="utf-8")
 
     return home_runtime
 

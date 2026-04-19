@@ -462,6 +462,32 @@ open.
    `cli.main` wraps coroutines via `asyncio.run` internally.
    Converted the affected REPL tests to synchronous `def`.
 
+### Roadmap cut — MCP deferred
+
+The v3 plan listed an `uk-property-agent-mcp` sibling repo so the
+agent could be invoked as a Claude Desktop / Cursor MCP tool. The
+user's target demo audience isn't in those clients yet, so the
+whole scaffolding (and the mid-stream plan entry) was deleted.
+Easy to bring back later — the agent's public API
+(`PropertyAgent.ainvoke` / `astream_events` + `build_tools`) is
+MCP-ready as-is; an MCP wrapper would be a ~200-line adapter
+rather than a redesign.
+
+### Known follow-ups (not blocking v4)
+
+* `InMemorySaver` is per-process; reloading the REPL or restarting
+  Chainlit drops history. Switching to `SqliteSaver` (stdlib-only)
+  or `PostgresSaver` (network) is a one-line constructor change on
+  `PropertyAgent(checkpointer=...)`; postponed until a SaaS-vs-CLI
+  persistence decision is made.
+* No OAuth / auth on the web UI. Deliberately demo-only today;
+  Chainlit supports header auth + OAuth, but enabling it would
+  push this past "local demo" into "hosted product" which is a
+  separate decision.
+* LangSmith wiring is env-var-only. A `property-agent trace`
+  command that opens the latest run in a browser would be a nice
+  ergonomic win; deferred.
+
 ---
 
 ## 2026-04-19 — Agent v4.1 (tool error containment + self-healing UI)
@@ -521,36 +547,6 @@ restart the server — after pulling this fix, the old session's
 broken thread is self-healed on the next message. The friendly
 "started a fresh thread" banner fires once and the user's question
 is retried on a valid history.
-
----
-
-## 2026-04-19 — Agent v4 (interactive surfaces: memory + REPL + Chainlit demo)
-
-### Roadmap cut — MCP deferred
-
-The v3 plan listed an `uk-property-agent-mcp` sibling repo so the
-agent could be invoked as a Claude Desktop / Cursor MCP tool. The
-user's target demo audience isn't in those clients yet, so the
-whole scaffolding (and the mid-stream plan entry) was deleted.
-Easy to bring back later — the agent's public API
-(`PropertyAgent.ainvoke` / `astream_events` + `build_tools`) is
-MCP-ready as-is; an MCP wrapper would be a ~200-line adapter
-rather than a redesign.
-
-### Known follow-ups (not blocking v4)
-
-* `InMemorySaver` is per-process; reloading the REPL or restarting
-  Chainlit drops history. Switching to `SqliteSaver` (stdlib-only)
-  or `PostgresSaver` (network) is a one-line constructor change on
-  `PropertyAgent(checkpointer=...)`; postponed until a SaaS-vs-CLI
-  persistence decision is made.
-* No OAuth / auth on the web UI. Deliberately demo-only today;
-  Chainlit supports header auth + OAuth, but enabling it would
-  push this past "local demo" into "hosted product" which is a
-  separate decision.
-* LangSmith wiring is env-var-only. A `property-agent trace`
-  command that opens the latest run in a browser would be a nice
-  ergonomic win; deferred.
 
 ---
 

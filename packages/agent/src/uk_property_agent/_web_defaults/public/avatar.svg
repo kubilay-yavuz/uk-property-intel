@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="UK Property Intelligence agent avatar">
+  <title>Agent</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1b1e25"/>
+      <stop offset="100%" stop-color="#0f1116"/>
+    </linearGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e2b983"/>
+      <stop offset="100%" stop-color="#c69a60"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31.5" fill="url(#bg)" stroke="#2a2e37" stroke-width="1"/>
+  <g fill="none" stroke="url(#brass)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" transform="translate(32 33)">
+    <path d="M-14 11 L0 -13 L14 11"/>
+    <path d="M-10 11 L-10 2"/>
+    <path d="M10 11 L10 2"/>
+    <path d="M-14 11 L14 11"/>
+    <path d="M-4 11 L-4 4 L4 4 L4 11"/>
+  </g>
+  <circle cx="32" cy="28" r="1.4" fill="#e2b983"/>
+</svg>

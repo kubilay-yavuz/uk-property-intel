@@ -149,3 +149,66 @@ async def test_bulk_lookup_rejects_over_100() -> None:
     async with PostcodesClient() as client:
         with pytest.raises(ValueError):
             await client.bulk_lookup(["X"] * 101)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_search_places_returns_matches() -> None:
+    respx.get(re.compile(r"https://api\.postcodes\.io/places(\?.*)?$")).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": 200,
+                "result": [
+                    {
+                        "code": "osgb4000000074534990",
+                        "name_1": "Cambridge",
+                        "local_type": "City",
+                        "county_unitary": "Cambridgeshire",
+                        "region": "East of England",
+                        "country": "England",
+                        "longitude": 0.115989,
+                        "latitude": 52.205337,
+                        "eastings": 545000,
+                        "northings": 258500,
+                    },
+                    {
+                        "code": "osgb4000000074542345",
+                        "name_1": "Cambridge",
+                        "local_type": "Village",
+                        "county_unitary": "Gloucestershire",
+                        "region": "South West",
+                        "country": "England",
+                        "longitude": -2.346,
+                        "latitude": 51.740,
+                    },
+                ],
+            },
+        ),
+    )
+    async with PostcodesClient() as client:
+        results = await client.search_places("Cambridge", limit=3)
+    assert len(results) == 2
+    assert results[0].name_1 == "Cambridge"
+    assert results[0].local_type == "City"
+    assert results[0].county_unitary == "Cambridgeshire"
+    assert results[0].latitude == pytest.approx(52.205337)
+    assert results[1].county_unitary == "Gloucestershire"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_search_places_empty_result_returns_list() -> None:
+    respx.get(re.compile(r"https://api\.postcodes\.io/places(\?.*)?$")).mock(
+        return_value=httpx.Response(200, json={"status": 200, "result": []}),
+    )
+    async with PostcodesClient() as client:
+        results = await client.search_places("Atlantis")
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_search_places_rejects_empty_query() -> None:
+    async with PostcodesClient() as client:
+        with pytest.raises(ValueError, match="non-empty"):
+            await client.search_places("   ")

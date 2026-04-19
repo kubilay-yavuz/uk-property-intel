@@ -65,3 +65,4 @@ packages = ["src/uk_property_agent"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/uk_property_agent/_web_defaults/chainlit.md" = "uk_property_agent/_web_defaults/chainlit.md"
 "src/uk_property_agent/_web_defaults/chainlit_config.toml" = "uk_property_agent/_web_defaults/chainlit_config.toml"
+"src/uk_property_agent/_web_defaults/public" = "uk_property_agent/_web_defaults/public"

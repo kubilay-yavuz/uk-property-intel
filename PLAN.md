@@ -1,6 +1,6 @@
 # UK Property Intelligence — Master Plan
 
-> Status: **build phase** — see the top-level `STATUS.md` for the live snapshot. As of 2026-04-19: 8 public packages + 1 private shipped, 3 MCPs dual-mode, **12/12 actors code-complete** (A6 `auctions` multi-source dispatch shipped 2026-04-19 covering Allsop + Auction House UK + Savills + iamsold), LangGraph Agent v4 with multi-provider routing + streaming narrative + 23 tools + **three interactive surfaces** (CLI `ask` / CLI `chat` REPL / Chainlit web demo, all sharing an `InMemorySaver` checkpointer), **1130 intel tests green**.
+> Status: **build phase** — see the top-level `STATUS.md` for the live snapshot. As of 2026-04-19: 8 public packages + 1 private shipped, 3 MCPs dual-mode, **12/12 actors code-complete** (A6 `auctions` multi-source dispatch shipped 2026-04-19 covering Allsop + Auction House UK + Savills + iamsold), LangGraph Agent v4.1 with multi-provider routing + streaming narrative + 17–24 tools (conditional on API keys) + **three interactive surfaces** (CLI `ask` / CLI `chat` REPL / Chainlit web demo, all sharing an `InMemorySaver` checkpointer, Chainlit thread self-heals when a provider rejects corrupted replay history), **1138 intel tests green**.
 > Owner: Kubilay Yavuz
 > Single source of truth — keep this file current as decisions evolve.
 

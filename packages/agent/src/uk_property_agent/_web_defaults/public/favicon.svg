@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="UK Property Intelligence">
+  <title>UK Property Intelligence</title>
+  <rect width="32" height="32" rx="7" fill="#12141a"/>
+  <g fill="none" stroke="#d4a574" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 23 L16 8 L27 23"/>
+    <path d="M8 23 L8 16"/>
+    <path d="M24 23 L24 16"/>
+    <path d="M5 23 L27 23"/>
+    <path d="M13 23 L13 17.5 L19 17.5 L19 23"/>
+  </g>
+  <circle cx="16" cy="14.5" r="1" fill="#d4a574"/>
+</svg>

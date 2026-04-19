@@ -14,6 +14,8 @@ from uk_property_apis.postcodes.models import (
     BulkPostcodeResponse,
     OutcodeLookupResponse,
     OutcodeResult,
+    PlaceResult,
+    PlaceSearchResponse,
     PostcodeLookupResponse,
     PostcodeResult,
     PostcodeValidateResponse,
@@ -87,6 +89,26 @@ class PostcodesClient(BaseAPIClient):
         if parsed.result is None:
             raise NotFoundError("Outcode not found", status_code=404)
         return parsed.result
+
+    async def search_places(self, query: str, *, limit: int = 10) -> list[PlaceResult]:
+        """Search OS Open Names places by free-text query.
+
+        Backed by ``GET /places?q=<query>``. Matches cities, towns,
+        villages, hamlets and neighbourhood features — each result
+        carries ``latitude`` / ``longitude`` which can be chained into
+        :meth:`reverse_geocode` to turn a place name into one or more
+        nearby postcodes. The top result is usually the most populous
+        / highest-ranked OS feature but callers should inspect
+        ``local_type`` and ``region`` before picking one (e.g. the
+        Cambridgeshire city vs. the Gloucestershire village).
+        """
+
+        if not query.strip():
+            raise ValueError("search_places requires a non-empty query")
+        params = {"q": query.strip(), "limit": limit}
+        payload = await self._get("places", params=params)
+        parsed = self._validate_model(PlaceSearchResponse, payload)
+        return list(parsed.result or [])
 
 
 async def lookup_postcode(postcode: str) -> PostcodeResult:

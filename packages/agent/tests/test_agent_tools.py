@@ -52,6 +52,7 @@ class TestBuildTools:
             "search_rightmove",
             "search_onthemarket",
             "lookup_postcode",
+            "find_postcodes_for_place",
             "sold_prices_for_postcode",
             "crime_stats_near",
             "listed_buildings_near",
@@ -132,6 +133,160 @@ class TestPostcodeTool:
         assert out["postcode"] == "CB1 1BS"
         assert out["admin_district"] == "Cambridge"
         assert out["latitude"] == pytest.approx(52.201)
+
+
+class TestUkPostcodeValidator:
+    """Fail-fast regex so ``lookup_postcode(Cambridge)`` never hits the network."""
+
+    def test_accepts_all_standard_uk_postcode_shapes(self) -> None:
+        from uk_property_agent.tools import _validate_uk_postcode
+
+        # Shapes: AA9A 9AA / A9A 9AA / A9 9AA / A99 9AA / AA9 9AA / AA99 9AA
+        for pc in [
+            "CB1 2JW",
+            "SW1A 1AA",
+            "M1 1AE",
+            "B33 8TH",
+            "CR2 6XH",
+            "DN55 1PT",
+            "EC1A 1BB",
+            "W1A 0AX",
+            # Lenient on whitespace + case — postcodes.io itself is too.
+            "cb1 2jw",
+            "SW1A1AA",
+            "  M1 1AE  ",
+        ]:
+            assert _validate_uk_postcode(pc) == pc
+
+    def test_rejects_place_name_with_recovery_hint(self) -> None:
+        from uk_property_agent.tools import _validate_uk_postcode
+
+        for bad in ["Cambridge", "London", "Canary Wharf", "Hackney", ""]:
+            with pytest.raises(ValueError) as exc_info:
+                _validate_uk_postcode(bad)
+            msg = str(exc_info.value)
+            assert "not a UK postcode" in msg
+            # Every error message should tell the LLM how to recover.
+            assert "find_postcodes_for_place" in msg
+
+    def test_rejects_partial_postcodes(self) -> None:
+        from uk_property_agent.tools import _validate_uk_postcode
+
+        for bad in ["CB1", "SW1A", "12345", "B 33 8TH not quite"]:
+            with pytest.raises(ValueError):
+                _validate_uk_postcode(bad)
+
+
+class TestPostcodeValidationAtToolBoundary:
+    """End-to-end check: pydantic validation fires before any HTTP call."""
+
+    async def test_lookup_postcode_rejects_place_name_before_network(self) -> None:
+        tool = _tool_by_name("lookup_postcode")
+        # No respx mocks — if the validator fails open and attempts an
+        # HTTP call, respx would raise on the unroutable request. By
+        # catching the pydantic ValidationError first we prove no
+        # network traffic is emitted for place-name inputs.
+        with pytest.raises(Exception, match="not a UK postcode"):
+            await tool.ainvoke({"postcode": "Cambridge"})
+
+
+class TestFindPostcodesForPlaceTool:
+    @respx.mock
+    async def test_resolves_place_with_nearby_postcodes(self) -> None:
+        respx.get(url__regex=r"https://api\.postcodes\.io/places(\?.*)?$").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": 200,
+                    "result": [
+                        {
+                            "name_1": "Cambridge",
+                            "local_type": "City",
+                            "county_unitary": "Cambridgeshire",
+                            "region": "East of England",
+                            "country": "England",
+                            "latitude": 52.205,
+                            "longitude": 0.116,
+                        },
+                        {
+                            "name_1": "Cambridge",
+                            "local_type": "Village",
+                            "county_unitary": "Gloucestershire",
+                            "region": "South West",
+                            "country": "England",
+                            "latitude": 51.740,
+                            "longitude": -2.346,
+                        },
+                    ],
+                },
+            )
+        )
+        respx.get(url__regex=r"https://api\.postcodes\.io/postcodes\?.*").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": 200,
+                    "result": [
+                        {"postcode": "CB2 3QQ", "longitude": 0.117, "latitude": 52.200},
+                        {"postcode": "CB2 1TN", "longitude": 0.118, "latitude": 52.202},
+                        {"postcode": "CB2 1QA", "longitude": 0.119, "latitude": 52.203},
+                    ],
+                },
+            )
+        )
+        tool = _tool_by_name("find_postcodes_for_place")
+        out = await tool.ainvoke({"query": "Cambridge", "limit": 5})
+
+        assert out["query"] == "Cambridge"
+        assert out["count"] == 2
+        top, alt = out["matches"]
+        assert top["name"] == "Cambridge"
+        assert top["local_type"] == "City"
+        assert top["county_unitary"] == "Cambridgeshire"
+        # Top match carries nearby postcodes resolved via reverse geocode.
+        assert "CB2 3QQ" in top["nearby_postcodes"]
+        assert "CB2 1TN" in top["nearby_postcodes"]
+        # Alternative also gets nearby postcodes (same mock, same answers) —
+        # the contract is "every match has a nearby_postcodes list".
+        assert alt["county_unitary"] == "Gloucestershire"
+        assert isinstance(alt["nearby_postcodes"], list)
+
+    @respx.mock
+    async def test_no_matches_returns_empty_shape(self) -> None:
+        respx.get(url__regex=r"https://api\.postcodes\.io/places(\?.*)?$").mock(
+            return_value=httpx.Response(200, json={"status": 200, "result": []})
+        )
+        tool = _tool_by_name("find_postcodes_for_place")
+        out = await tool.ainvoke({"query": "Atlantis"})
+        assert out == {"query": "Atlantis", "count": 0, "matches": []}
+
+    @respx.mock
+    async def test_survives_reverse_geocode_failure(self) -> None:
+        # A 500 on /postcodes must not kill the whole tool — the match
+        # should still come back, just with an empty nearby_postcodes.
+        respx.get(url__regex=r"https://api\.postcodes\.io/places(\?.*)?$").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": 200,
+                    "result": [
+                        {
+                            "name_1": "Cambridge",
+                            "local_type": "City",
+                            "latitude": 52.205,
+                            "longitude": 0.116,
+                        }
+                    ],
+                },
+            )
+        )
+        respx.get(url__regex=r"https://api\.postcodes\.io/postcodes\?.*").mock(
+            return_value=httpx.Response(500, json={"status": 500})
+        )
+        tool = _tool_by_name("find_postcodes_for_place")
+        out = await tool.ainvoke({"query": "Cambridge"})
+        assert out["count"] == 1
+        assert out["matches"][0]["nearby_postcodes"] == []
 
 
 class TestSoldPricesTool:

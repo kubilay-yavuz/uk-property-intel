@@ -1,0 +1,507 @@
+/*
+ * UK Property Intelligence — Chainlit theme
+ * ------------------------------------------------------------
+ * Editorial / premium look:
+ *   * Warm charcoal background (220 13% 8%)
+ *   * Brass-amber brand accent (36 65% 62%) for primary, ring, and chart-1
+ *   * Inter (sans) + JetBrains Mono (mono), with OpenType features enabled
+ *
+ * Implementation notes:
+ *   * Chainlit ships a shadcn/Tailwind UI whose colors are driven by
+ *     HSL-triplet CSS custom properties under `:root` (light) and
+ *     `.dark` (dark). Overriding those at the :root level cascades
+ *     into every shadcn component without touching generated class
+ *     names.
+ *   * Chainlit-specific class names (message bubbles, starter cards,
+ *     step panels) are reached via attribute-substring selectors
+ *     `[class*="..."]` so we don't pin to hashed build output.
+ *   * `prefers-reduced-motion` is respected — all animations decay
+ *     to ~0ms when the user has reduced motion enabled.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* =========================================================
+ * 1. Theme tokens — dark (default) and light
+ *    HSL triplet format matches shadcn's hsl(var(--*)) pattern.
+ *
+ *    Specificity note: Chainlit's bundled CSS loads *after* this
+ *    file and defines its own `:root { ... }` and `.dark { ... }`
+ *    blocks. At equal specificity (0,1,0) the later-declared rule
+ *    wins the cascade — i.e. Chainlit would win. We therefore
+ *    group each theme block with an `html:root` / `html.dark`
+ *    variant (specificity 0,1,1) so our overrides unambiguously
+ *    beat the bundle CSS without resorting to `!important`.
+ * ========================================================= */
+
+:root,
+html:root {
+  --background: 40 25% 98%;
+  --foreground: 220 22% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 220 22% 12%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 22% 12%;
+
+  --primary: 30 52% 40%;
+  --primary-foreground: 40 25% 98%;
+
+  --secondary: 40 18% 94%;
+  --secondary-foreground: 220 22% 16%;
+
+  --muted: 40 16% 94%;
+  --muted-foreground: 220 10% 42%;
+
+  --accent: 40 22% 92%;
+  --accent-foreground: 220 22% 12%;
+
+  --destructive: 4 62% 50%;
+  --destructive-foreground: 40 25% 98%;
+
+  --border: 40 12% 88%;
+  --input: 40 12% 88%;
+  --ring: 30 52% 40%;
+
+  --radius: 0.75rem;
+
+  --chart-1: 30 52% 40%;
+  --chart-2: 180 38% 42%;
+  --chart-3: 340 45% 52%;
+  --chart-4: 140 30% 42%;
+  --chart-5: 260 35% 52%;
+
+  --sidebar-background: 40 22% 96%;
+  --sidebar-foreground: 220 22% 14%;
+  --sidebar-primary: 30 52% 40%;
+  --sidebar-primary-foreground: 40 25% 98%;
+  --sidebar-accent: 40 18% 92%;
+  --sidebar-accent-foreground: 220 22% 14%;
+  --sidebar-border: 40 12% 88%;
+  --sidebar-ring: 30 52% 40%;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
+
+  --brand-amber: 36 65% 62%;
+  --brand-amber-deep: 30 55% 46%;
+}
+
+.dark,
+html.dark,
+:root.dark {
+  --background: 220 13% 8%;
+  --foreground: 40 18% 94%;
+
+  --card: 220 12% 11%;
+  --card-foreground: 40 18% 94%;
+
+  --popover: 220 12% 11%;
+  --popover-foreground: 40 18% 94%;
+
+  --primary: 36 65% 62%;
+  --primary-foreground: 220 22% 10%;
+
+  --secondary: 220 10% 14%;
+  --secondary-foreground: 40 18% 92%;
+
+  --muted: 220 10% 14%;
+  --muted-foreground: 220 8% 62%;
+
+  --accent: 220 10% 16%;
+  --accent-foreground: 40 18% 94%;
+
+  --destructive: 4 58% 55%;
+  --destructive-foreground: 40 18% 94%;
+
+  --border: 220 10% 16%;
+  --input: 220 10% 14%;
+  --ring: 36 65% 62%;
+
+  --chart-1: 36 65% 62%;
+  --chart-2: 180 45% 55%;
+  --chart-3: 340 55% 65%;
+  --chart-4: 140 30% 55%;
+  --chart-5: 260 45% 65%;
+
+  --sidebar-background: 220 15% 6%;
+  --sidebar-foreground: 40 16% 88%;
+  --sidebar-primary: 36 65% 62%;
+  --sidebar-primary-foreground: 220 22% 10%;
+  --sidebar-accent: 220 12% 11%;
+  --sidebar-accent-foreground: 40 18% 94%;
+  --sidebar-border: 220 10% 12%;
+  --sidebar-ring: 36 65% 62%;
+
+  --brand-amber: 36 65% 62%;
+  --brand-amber-deep: 30 55% 46%;
+}
+
+/* =========================================================
+ * 2. Typography & global rendering
+ * ========================================================= */
+
+html, body {
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.005em;
+}
+
+code, kbd, pre, samp, tt, textarea.mono {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' off, 'calt' off;
+  font-variant-ligatures: none;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.018em;
+  font-weight: 600;
+}
+
+/* Subtle depth — a radial warm wash behind the chat column in dark mode.
+ * Chainlit puts the `.dark` class on <html>, so `.dark body::before`
+ * works; we also match `body.dark::before` defensively in case a
+ * future version shifts the class to <body>.
+ */
+.dark body::before,
+body.dark::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(
+      1200px 600px at 80% -10%,
+      hsl(var(--brand-amber) / 0.04) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at -10% 100%,
+      hsl(220 30% 20% / 0.35) 0%,
+      transparent 55%
+    );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* =========================================================
+ * 3. Scrollbars — slim & branded
+ * ========================================================= */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--brand-amber) / 0.45);
+  background-clip: padding-box;
+}
+
+/* =========================================================
+ * 4. Starter cards — the landing CTAs
+ *    Chainlit renders these with utility classes like
+ *    "starter-..." / contains the word starter. Use an
+ *    attribute-substring selector so build-hash changes don't
+ *    break us.
+ * ========================================================= */
+
+button[class*="starter"],
+a[class*="starter"],
+[class*="starter-card"],
+[class*="starter_"] {
+  border: 1px solid hsl(var(--border));
+  background: linear-gradient(
+    180deg,
+    hsl(var(--card)) 0%,
+    hsl(var(--card) / 0.92) 100%
+  );
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+  cursor: pointer;
+}
+
+button[class*="starter"]:hover,
+a[class*="starter"]:hover,
+[class*="starter-card"]:hover,
+[class*="starter_"]:hover {
+  transform: translateY(-1px);
+  border-color: hsl(var(--brand-amber) / 0.55);
+  box-shadow:
+    0 0 0 1px hsl(var(--brand-amber) / 0.12),
+    0 10px 30px -18px hsl(var(--brand-amber) / 0.35),
+    0 2px 6px -3px rgb(0 0 0 / 0.35);
+}
+
+button[class*="starter"]:active,
+a[class*="starter"]:active,
+[class*="starter-card"]:active {
+  transform: translateY(0);
+}
+
+/* Slightly dim the starter icon unless hovered, amber it on hover. */
+button[class*="starter"] img[src*="icon_"],
+a[class*="starter"] img[src*="icon_"] {
+  opacity: 0.82;
+  transition: opacity 180ms ease, filter 180ms ease;
+}
+button[class*="starter"]:hover img[src*="icon_"],
+a[class*="starter"]:hover img[src*="icon_"] {
+  opacity: 1;
+  filter: drop-shadow(0 0 8px hsl(var(--brand-amber) / 0.45));
+}
+
+/* =========================================================
+ * 5. Messages — subtle fade-in + refined spacing
+ * ========================================================= */
+
+@keyframes uk-msg-fade-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+[class*="message"][class*="message-body"],
+[class*="MessageContent"],
+[class*="message-content"] {
+  animation: uk-msg-fade-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  line-height: 1.65;
+}
+
+/* Slightly tighter line-height on short code/mono bits inside prose. */
+[class*="message"] code:not(pre code) {
+  padding: 0.12em 0.38em;
+  border-radius: 4px;
+  background: hsl(var(--muted) / 0.6);
+  border: 1px solid hsl(var(--border) / 0.6);
+  font-size: 0.88em;
+}
+
+/* =========================================================
+ * 6. Chain-of-thought / tool steps
+ *    Chainlit wraps these in elements whose class names
+ *    contain "step". We brand the left border in amber to
+ *    visually separate tool activity from narration.
+ * ========================================================= */
+
+[class*="step"][class*="root"],
+details[class*="step"],
+[data-step] {
+  border-left: 2px solid hsl(var(--brand-amber) / 0.3);
+  padding-left: 0.75rem;
+  transition: border-color 180ms ease;
+}
+
+[class*="step"][class*="root"]:hover,
+details[class*="step"]:hover,
+[data-step]:hover {
+  border-left-color: hsl(var(--brand-amber) / 0.7);
+}
+
+/* Running steps (Chainlit adds aria-busy or data-status="running"). */
+[class*="step"][data-status="running"],
+[class*="step"][aria-busy="true"] {
+  border-left-color: hsl(var(--brand-amber));
+}
+
+/* Error-state steps get a muted red left bar. */
+[class*="step"][data-status="error"],
+[class*="step"][data-status="failed"] {
+  border-left-color: hsl(var(--destructive) / 0.75);
+}
+
+/* =========================================================
+ * 7. Input composer — sleeker border + amber focus ring
+ * ========================================================= */
+
+textarea,
+input[type="text"],
+input[type="search"],
+[contenteditable="true"][role="textbox"] {
+  border-radius: calc(var(--radius) - 2px);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+textarea:focus,
+textarea:focus-visible,
+input[type="text"]:focus,
+input[type="text"]:focus-visible,
+input[type="search"]:focus,
+input[type="search"]:focus-visible,
+[contenteditable="true"][role="textbox"]:focus,
+[contenteditable="true"][role="textbox"]:focus-visible {
+  outline: none;
+  border-color: hsl(var(--brand-amber) / 0.6);
+  box-shadow: 0 0 0 3px hsl(var(--brand-amber) / 0.14);
+}
+
+/* Send button — subtle amber glow on hover. */
+button[type="submit"],
+button[aria-label*="Send" i],
+button[aria-label*="send" i] {
+  transition:
+    transform 140ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+button[type="submit"]:hover:not([disabled]),
+button[aria-label*="Send" i]:hover:not([disabled]) {
+  box-shadow: 0 4px 14px -4px hsl(var(--brand-amber) / 0.35);
+}
+
+/* =========================================================
+ * 8. Code blocks — raised card with soft inner shadow
+ * ========================================================= */
+
+pre {
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.18);
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+}
+
+pre code {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* =========================================================
+ * 9. Links — branded amber, underlined on hover
+ * ========================================================= */
+
+a:not([class]),
+[class*="message"] a,
+[class*="markdown"] a {
+  color: hsl(var(--brand-amber));
+  text-decoration-color: hsl(var(--brand-amber) / 0.35);
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  transition: color 140ms ease, text-decoration-color 140ms ease;
+}
+
+a:not([class]):hover,
+[class*="message"] a:hover,
+[class*="markdown"] a:hover {
+  color: hsl(var(--brand-amber) / 0.85);
+  text-decoration-color: hsl(var(--brand-amber) / 0.7);
+}
+
+/* =========================================================
+ * 10. Buttons — firm primary with a soft brass lift
+ * ========================================================= */
+
+button[class*="bg-primary"],
+button[data-variant="default"] {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--brand-amber)) 0%,
+    hsl(var(--brand-amber-deep)) 100%
+  ) !important;
+  color: hsl(220 22% 10%) !important;
+  transition: transform 140ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+button[class*="bg-primary"]:hover:not([disabled]),
+button[data-variant="default"]:hover:not([disabled]) {
+  filter: brightness(1.04);
+  box-shadow: 0 6px 18px -6px hsl(var(--brand-amber) / 0.4);
+  transform: translateY(-1px);
+}
+
+/* =========================================================
+ * 11. Assistant-message avatar — subtle ring
+ * ========================================================= */
+
+img[alt*="agent" i],
+img[alt*="assistant" i],
+[class*="avatar"] img {
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px hsl(var(--border)),
+    0 0 0 3px hsl(var(--background));
+}
+
+/* =========================================================
+ * 12. Logo container — soft drop-shadow for definition
+ * ========================================================= */
+
+[class*="logo"] img,
+header img[src*="/logo"] {
+  filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.2));
+}
+
+/* =========================================================
+ * 13. Welcome page — center the markdown column with generous rhythm
+ * ========================================================= */
+
+[class*="readme"],
+[class*="welcome"] {
+  max-width: 62ch;
+  line-height: 1.72;
+}
+
+[class*="readme"] h1,
+[class*="welcome"] h1 {
+  font-size: 1.65rem;
+  margin-top: 0.25em;
+  margin-bottom: 0.6em;
+}
+
+[class*="readme"] ul li,
+[class*="welcome"] ul li {
+  margin-bottom: 0.35em;
+}
+
+/* =========================================================
+ * 14. Selection — branded amber highlight
+ * ========================================================= */
+
+::selection {
+  background: hsl(var(--brand-amber) / 0.32);
+  color: hsl(var(--foreground));
+}
+
+/* =========================================================
+ * 15. Reduced-motion — collapse all animation
+ * ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  button[class*="starter"]:hover,
+  a[class*="starter"]:hover {
+    transform: none;
+  }
+}

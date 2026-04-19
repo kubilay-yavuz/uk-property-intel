@@ -7,6 +7,7 @@ any real LLM.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -151,3 +152,118 @@ class TestAskCommand:
 
         with pytest.raises(SystemExit):
             cli._build_model(_Args())
+
+
+class TestPrepareChainlitRuntimeDir:
+    """``_prepare_chainlit_runtime_dir`` seeds ``~/.uk-property-agent/web``.
+
+    The function has two distinct seeding policies we need to lock in:
+
+    * ``chainlit.md`` and ``.chainlit/config.toml`` — **seed if
+      missing** (so user edits survive upgrades).
+    * ``public/*`` assets (CSS, logos, icons, favicon, avatar) —
+      **always overwritten** from the bundled defaults (so a
+      ``pip install --upgrade`` picks up CSS/brand fixes).
+    """
+
+    @staticmethod
+    def _patch_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+
+    def test_first_run_seeds_config_markdown_and_public_assets(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._patch_home(monkeypatch, tmp_path)
+
+        runtime = cli._prepare_chainlit_runtime_dir()
+
+        assert runtime == tmp_path / ".uk-property-agent" / "web"
+        assert (runtime / ".chainlit" / "config.toml").is_file()
+        assert (runtime / "chainlit.md").is_file()
+
+        public_dir = runtime / "public"
+        assert public_dir.is_dir()
+        for asset in (
+            "custom.css",
+            "logo_dark.svg",
+            "logo_light.svg",
+            "favicon.svg",
+            "avatar.svg",
+            "icon_home.svg",
+            "icon_dossier.svg",
+            "icon_route.svg",
+            "icon_trend.svg",
+        ):
+            assert (public_dir / asset).is_file(), f"missing seeded asset: {asset}"
+
+    def test_seeded_config_points_at_custom_css_and_avatar(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._patch_home(monkeypatch, tmp_path)
+
+        runtime = cli._prepare_chainlit_runtime_dir()
+        config_text = (runtime / ".chainlit" / "config.toml").read_text("utf-8")
+
+        assert 'custom_css = "/public/custom.css"' in config_text
+        assert 'default_avatar_file_url = "/public/avatar.svg"' in config_text
+        assert 'default_theme = "dark"' in config_text
+        assert 'name = "UK Property Intelligence"' in config_text
+
+    def test_seeded_custom_css_carries_brand_tokens(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._patch_home(monkeypatch, tmp_path)
+
+        runtime = cli._prepare_chainlit_runtime_dir()
+        css = (runtime / "public" / "custom.css").read_text("utf-8")
+
+        # Brand amber (36 65% 62%) is the signature primary colour
+        # in dark mode — lock that in so future drifts are caught.
+        assert "36 65% 62%" in css
+        # Charcoal background + warm off-white foreground are the
+        # two other tokens the rest of the design leans on.
+        assert "220 13% 8%" in css
+        assert "40 18% 94%" in css
+        # Respecting reduced-motion is a deliberate accessibility
+        # contract; make sure the guard stays in.
+        assert "prefers-reduced-motion" in css
+
+    def test_user_edits_to_markdown_and_config_are_preserved(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Second call must not overwrite user-edited branding files."""
+
+        self._patch_home(monkeypatch, tmp_path)
+        runtime = cli._prepare_chainlit_runtime_dir()
+
+        user_md = "# my bespoke welcome page"
+        user_config = '[UI]\nname = "My Fork"\n'
+        (runtime / "chainlit.md").write_text(user_md, "utf-8")
+        (runtime / ".chainlit" / "config.toml").write_text(user_config, "utf-8")
+
+        cli._prepare_chainlit_runtime_dir()
+
+        assert (runtime / "chainlit.md").read_text("utf-8") == user_md
+        assert (runtime / ".chainlit" / "config.toml").read_text("utf-8") == user_config
+
+    def test_public_assets_always_overwritten(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """``public/*`` is a shipped-asset dir; re-seeding must refresh it.
+
+        Rationale: a user ``pip install --upgrade``s the package to
+        pick up a CSS polish fix. Without a refresh they'd keep the
+        stale version from their first run indefinitely.
+        """
+
+        self._patch_home(monkeypatch, tmp_path)
+        runtime = cli._prepare_chainlit_runtime_dir()
+
+        css_path = runtime / "public" / "custom.css"
+        css_path.write_text("/* user clobbered it */", "utf-8")
+
+        cli._prepare_chainlit_runtime_dir()
+
+        refreshed = css_path.read_text("utf-8")
+        assert "/* user clobbered it */" not in refreshed
+        assert "UK Property Intelligence" in refreshed

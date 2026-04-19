@@ -94,7 +94,13 @@ def _register_chainlit_handlers() -> None:
 
     @cl.set_starters
     async def starters() -> list[Any]:
-        """Starter prompts surfaced on the landing screen."""
+        """Starter prompts surfaced on the landing screen.
+
+        Icons are served from our seeded ``public/`` directory
+        (``~/.uk-property-agent/web/public/``) and reference the
+        brass-amber SVGs shipped with this package. Chainlit turns
+        the ``icon`` field into an ``<img>`` tag on the starter card.
+        """
 
         return [
             cl.Starter(
@@ -104,10 +110,12 @@ def _register_chainlit_handlers() -> None:
                     "£800,000. Explain each pick using commute to London, "
                     "schools, and flood risk."
                 ),
+                icon="/public/icon_home.svg",
             ),
             cl.Starter(
                 label="Postcode dossier: SW2 3RX",
                 message="Build a full property dossier for SW2 3RX.",
+                icon="/public/icon_dossier.svg",
             ),
             cl.Starter(
                 label="Commute from N1 to Canary Wharf",
@@ -115,6 +123,7 @@ def _register_chainlit_handlers() -> None:
                     "What's the public-transport commute time and "
                     "30-minute isochrone from N1 9FB to Canary Wharf?"
                 ),
+                icon="/public/icon_route.svg",
             ),
             cl.Starter(
                 label="Sold prices on one street",
@@ -123,6 +132,7 @@ def _register_chainlit_handlers() -> None:
                     "Elizabeth Street, Victoria, London, and flag anything "
                     "unusual."
                 ),
+                icon="/public/icon_trend.svg",
             ),
         ]
 

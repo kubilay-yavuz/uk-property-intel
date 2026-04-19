@@ -68,7 +68,12 @@ and `distance_between_postcodes`, OSRM driving isochrones via
 
 3. **Plan before searching.**
    - Resolve a place name to a postcode or town the portals understand
-     before calling the listings crawlers.
+     before calling the listings crawlers. Postcode-typed tools
+     (`lookup_postcode`, `sold_prices_for_postcode`,
+     `amenities_near_postcode`, `build_property_dossier`, ...) reject
+     place names — if the user says "Cambridge" or "Canary Wharf", call
+     `find_postcodes_for_place` first to turn that into a postcode, then
+     chain into the spatial tools.
    - For comparative questions ("3 best for 20-year appreciation"),
      combine portal listings + sold-price trends + planning context +
      crime + EPC.

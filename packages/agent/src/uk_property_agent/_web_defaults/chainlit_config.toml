@@ -35,7 +35,14 @@ layout = "wide"
 confirm_new_chat = false
 cot = "full"
 alert_style = "modern"
-default_avatar_file_url = ""
+custom_css = "/public/custom.css"
+default_avatar_file_url = "/public/avatar.svg"
+avatar_size = 28
+custom_meta_url = "https://github.com/"
+custom_meta_image_url = "/public/logo_dark.svg"
+# logo_file_url left empty: Chainlit auto-serves /public/logo_dark.svg
+# and /public/logo_light.svg based on the active theme.
+logo_file_url = ""
 
 [meta]
 generated_by = "uk-property-agent"
