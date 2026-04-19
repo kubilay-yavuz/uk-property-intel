@@ -35,14 +35,17 @@ from uk_property_agent.providers import (
     resolve_provider,
     select_available_provider,
 )
+from uk_property_agent.repl import ChatLoop, ChatLoopOptions, build_chat_loop
 from uk_property_agent.tools import ALL_TOOLS, build_tools
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "ALL_TOOLS",
     "CACHEABLE_SYSTEM_PROMPT",
     "SYSTEM_PROMPT",
+    "ChatLoop",
+    "ChatLoopOptions",
     "DossierAVM",
     "DossierAmenityCategory",
     "DossierCrime",
@@ -62,6 +65,7 @@ __all__ = [
     "TaskKind",
     "ToolContext",
     "__version__",
+    "build_chat_loop",
     "build_chat_model",
     "build_property_dossier",
     "build_system_message",

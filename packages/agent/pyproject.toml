@@ -1,14 +1,14 @@
 [project]
 name = "uk-property-agent"
-version = "0.1.0"
+version = "0.4.0"
 description = "Natural-language agent for UK property intelligence. LangGraph-based, with tool access to scrapers, government APIs, the geospatial engine, and the AVM."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "MIT" }
 authors = [{ name = "Kubilay Yavuz" }]
-keywords = ["uk", "property", "langgraph", "agent", "llm", "anthropic"]
+keywords = ["uk", "property", "langgraph", "agent", "llm", "anthropic", "chainlit", "chat"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.12",
@@ -39,6 +39,9 @@ gemini = [
     "langchain-google-genai>=2.0",
     "google-genai>=0.8",
 ]
+web = [
+    "chainlit>=2.0",
+]
 all = [
     "langchain-anthropic>=0.3",
     "anthropic>=0.40",
@@ -46,6 +49,7 @@ all = [
     "openai>=1.40",
     "langchain-google-genai>=2.0",
     "google-genai>=0.8",
+    "chainlit>=2.0",
 ]
 
 [project.scripts]
@@ -57,3 +61,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/uk_property_agent"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/uk_property_agent/_web_defaults/chainlit.md" = "uk_property_agent/_web_defaults/chainlit.md"
+"src/uk_property_agent/_web_defaults/chainlit_config.toml" = "uk_property_agent/_web_defaults/chainlit_config.toml"

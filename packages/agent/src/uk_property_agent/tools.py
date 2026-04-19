@@ -429,10 +429,41 @@ def _run_search_tool(
     return _tool
 
 
+def _format_tool_error(error: Exception) -> str:
+    """Serialise an in-tool exception as a compact LLM-readable string.
+
+    LangGraph's :class:`~langgraph.prebuilt.ToolNode` wires this in via
+    ``handle_tool_errors``; any exception raised by a tool becomes a
+    :class:`~langchain_core.messages.ToolMessage` carrying this string
+    instead of propagating up the graph. That matters for three reasons:
+
+    * The graph never persists an orphan ``AIMessage(tool_calls=...)``
+      into the checkpoint (the bug the Chainlit UI reproduced against
+      Gemini: "AIMessages with tool_calls that do not have a
+      corresponding ToolMessage").
+    * The LLM sees the error text on the next planning turn and can
+      adapt — retry with different args, apologise, or switch tool.
+    * UX stays linear: tool steps always close with *some* output, even
+      when an upstream API returns 404 / 403 / 500.
+
+    Annotation is :class:`Exception` (not :class:`BaseException`) so
+    LangGraph's ``_infer_handled_types`` accepts it — that helper
+    rejects anything outside ``Exception.__mro__``. Error shape is a
+    stable prefix + exception type + message so prompting can match
+    it without a regex: ``[tool-error] <Type>: <msg>``.
+    """
+
+    return f"[tool-error] {type(error).__name__}: {error}".strip()
+
+
 def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
     """Build the full tool list for the UK property agent.
 
     Pass a custom :class:`ToolContext` to swap out factories (e.g. for tests).
+    Every tool returned is hardened with :func:`_format_tool_error`; the
+    ReAct ``ToolNode`` therefore converts any raised exception into a
+    :class:`~langchain_core.messages.ToolMessage` the LLM can read, and
+    never leaves an orphan ``tool_call`` in the checkpointer.
     """
     ctx = ctx or ToolContext()
 
@@ -1291,6 +1322,8 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
             )
         )
 
+    for tool in tools:
+        tool.handle_tool_error = _format_tool_error
     return tools
 
 

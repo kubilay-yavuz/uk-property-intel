@@ -1,6 +1,6 @@
 # UK Property Intelligence — Master Plan
 
-> Status: **build phase** — see the top-level `STATUS.md` for the live snapshot. As of 2026-04-19: 8 public packages + 1 private shipped, 3 MCPs dual-mode, **12/12 actors code-complete** (A6 `auctions` multi-source dispatch shipped 2026-04-19 covering Allsop + Auction House UK + Savills + iamsold), LangGraph Agent v3 with multi-provider routing + streaming narrative + 23 tools, **1092 intel tests green**.
+> Status: **build phase** — see the top-level `STATUS.md` for the live snapshot. As of 2026-04-19: 8 public packages + 1 private shipped, 3 MCPs dual-mode, **12/12 actors code-complete** (A6 `auctions` multi-source dispatch shipped 2026-04-19 covering Allsop + Auction House UK + Savills + iamsold), LangGraph Agent v4 with multi-provider routing + streaming narrative + 23 tools + **three interactive surfaces** (CLI `ask` / CLI `chat` REPL / Chainlit web demo, all sharing an `InMemorySaver` checkpointer), **1130 intel tests green**.
 > Owner: Kubilay Yavuz
 > Single source of truth — keep this file current as decisions evolve.
 
@@ -133,13 +133,31 @@ packages/
 
 ## 3. The 15 Deliverables
 
-### OSS artefacts (3)
+### OSS artefacts (3 + 3 agent surfaces)
 
 | # | Name | Purpose | Distribution |
 |---|---|---|---|
 | O1 | `uk-property-intel` (monorepo → 5 PyPI packages) | Core parsers, API clients, geo engine, AVM model, agent | GitHub + PyPI |
 | O2 | `zoopla-mcp` | MCP server for Zoopla, dual-mode | GitHub + PyPI + Smithery + awesome-mcp |
 | O3 | `rightmove-mcp` | MCP server for Rightmove, dual-mode | GitHub + PyPI + Smithery + awesome-mcp |
+
+The `uk-property-agent` package ships **three interactive surfaces** (all in
+the same PyPI wheel, all over the same `PropertyAgent` + tool set +
+checkpointer):
+
+| Surface | Command | Purpose | Audience |
+|---|---|---|---|
+| One-shot CLI | `property-agent ask "..."` (`--stream` optional) | Scriptable, pipe-friendly, runs the graph once and exits | Shell users, CI, quick smoke tests |
+| Interactive REPL | `property-agent chat` | Terminal loop with `InMemorySaver` memory + slash commands (`/provider`, `/tools`, `/stream`, `/clear`, `/help`, `/exit`) | Devs iterating on prompts locally |
+| Web demo | `property-agent serve` (`[web]` extra, Chainlit) | Browser chat UI with per-tab thread memory, streamed answers, collapsible tool steps, four starter prompts, seeded branded config at `~/.uk-property-agent/web/`. Demo-only — no auth, no rate limiting, no persistence beyond the in-memory saver | Non-technical demo attendees, screen-share pitches |
+
+A sibling `uk-property-agent-mcp` repo was briefly scaffolded then **cut**
+from the roadmap on 2026-04-19 — the target audience for this agent isn't
+on Claude Desktop / Cursor yet, and the Chainlit UI covers the demo use
+case with much lower friction. The agent's public API
+(`PropertyAgent.ainvoke` / `astream_events` + `build_tools`) is MCP-ready
+and the wrapper can be brought back as a ~200-line adapter if the audience
+shifts.
 
 ### Apify actors (12)
 
@@ -215,7 +233,7 @@ A13 — `uk-postcode-dossier` that composes A9+A10+A11+A12 in one call, priced a
 7. **First Apify listings actor** (Zoopla) — proves the production crawler pattern (DONE + hardened 2026-04-19)
 8. **EPC+CT+PPD unified actor** — cheapest revenue, zero competition (DONE)
 9. **Planning aggregator actor** — IDOX selectors already proven in prior session (DONE)
-10. **Agent (LangGraph)** — first end-to-end demo (ALPHA **v3 shipped 2026-04-19**: 23 tools incl. `drive_time_isochrone`, `transit_isochrone`, `build_property_dossier`; dual-mode delegation to A10 AVM, A12 location-intel, A5 planning, A7 landlord network; **multi-provider routing across Anthropic / OpenAI / Gemini** with provider-aware prompt-cache shape + per-task model pinning via `AGENT_MODEL_<TASK>` env + `[anthropic]` / `[openai]` / `[gemini]` / `[all]` optional-deps; **streaming narrative output** via `PropertyAgent.astream_narrative(...)` + `astream_events(...)` + CLI `--stream` flag)
+10. **Agent (LangGraph)** — first end-to-end demo (ALPHA **v4 shipped 2026-04-19**: 23 tools incl. `drive_time_isochrone`, `transit_isochrone`, `build_property_dossier`; dual-mode delegation to A10 AVM, A12 location-intel, A5 planning, A7 landlord network; **multi-provider routing across Anthropic / OpenAI / Gemini** with provider-aware prompt-cache shape + per-task model pinning via `AGENT_MODEL_<TASK>` env + `[anthropic]` / `[openai]` / `[gemini]` / `[all]` optional-deps; **streaming narrative output** via `PropertyAgent.astream_narrative(...)` + `astream_events(...)` + CLI `--stream` flag; **three interactive surfaces** — `property-agent ask` (one-shot), `property-agent chat` (REPL with memory + slash commands), `property-agent serve` (Chainlit web demo, `[web]` extra) — all sharing a LangGraph `InMemorySaver` checkpointer keyed by `thread_id`)
 11. **AVM, Climate Risk, Location Intelligence, Demographics, Auctions actors** — the signals + domain-intel stack (A9 + A10 + A11 + A12 + A6 multi-source DONE 2026-04-19)
 12. **Auctions, landlord network, tenders** — domain intel (all DONE: landlord + tenders shipped 2026-04-18, auctions multi-source shipped 2026-04-19)
 13. **Launch push** — blog post, Show HN, LinkedIn, Smithery, Discord community
@@ -424,6 +442,7 @@ Zoopla, Rightmove, OnTheMarket, SpareRoom, OpenRent, Allsop, Auction House UK, S
 - [x] **Demographics scope**: UK-only (ONS + Census 2021 + Nomis + IMD + MHCLG), not global
 - [x] **Climate risk**: composite actor (flood + coastal + subsidence + UKCP18 20-yr projection)
 - [x] **Location intelligence**: separate actor (A12), also baked into the agent via `packages/geo`
+- [x] **Agent interactive surfaces (2026-04-19)**: three surfaces over the same `PropertyAgent` + `InMemorySaver` checkpointer — `property-agent ask` (one-shot), `property-agent chat` (terminal REPL with slash commands), `property-agent serve` (Chainlit web demo). **No `uk-property-agent` MCP wrapper** — target demo audience isn't in Claude Desktop / Cursor; the Chainlit UI covers the gap. The agent's public API stays MCP-compatible so a wrapper can be added later.
 - [x] **Alerts**: **Discord** webhooks (per-actor severity channels), not Slack
 - [x] **Canonical `Listing` schema**: defined in `uk-property-scrapers`, imported everywhere
 - [x] **Pricing philosophy**: cost-plus floor; premium on gap actors (A4, A5, A10)
@@ -445,6 +464,9 @@ Zoopla, Rightmove, OnTheMarket, SpareRoom, OpenRent, Allsop, Auction House UK, S
 - Commercial property beyond Rightmove/Zoopla Commercial
 - Pre-2008 heritage property records (EPC predates this)
 - Bundle actor A13 (ship if demand shows)
+- `uk-property-agent-mcp` sibling repo — cut on 2026-04-19; revisit if the user base shifts to Claude Desktop / Cursor
+- Persistent agent memory — `InMemorySaver` (per-process) is the v1 checkpointer; `SqliteSaver` / `PostgresSaver` swap is a one-line constructor change, deferred until a SaaS vs CLI persistence decision is made
+- Auth on the Chainlit demo UI — explicitly demo-only; no hosting commitment today
 
 ---
 

@@ -18,7 +18,9 @@ from typing import Any
 import httpx
 import respx
 from langchain_core.language_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.tools import StructuredTool
+from langgraph.checkpoint.memory import InMemorySaver
 from uk_property_agent import PropertyAgent, ToolContext
 from uk_property_listings import SimpleCrawler
 
@@ -196,3 +198,160 @@ class TestStreamingNarrative:
         )
         full = narrative or final
         assert "Cambridge" in full
+
+
+class TestToolErrorHandling:
+    """Guards against the Chainlit + Gemini "orphan tool_call" regression.
+
+    When a UK property tool raises an arbitrary :class:`Exception`
+    (postcodes.io 404, Zoopla 403, OTP timeout…) LangGraph's default
+    ``_default_handle_tool_errors`` only swallows ``ToolInvocationError``
+    — everything else re-raises, the graph crashes mid-turn, and the
+    checkpointer ends up with an ``AIMessage(tool_calls=...)`` that has
+    no matching :class:`ToolMessage`. Gemini then rejects every future
+    turn on that thread with::
+
+        Found AIMessages with tool_calls that do not have a
+        corresponding ToolMessage.
+
+    We fix this in :class:`PropertyAgent.__init__` by wiring an explicit
+    :class:`ToolNode` whose ``handle_tool_errors`` is
+    :func:`uk_property_agent.tools._format_tool_error`. These tests lock
+    that wiring in place so a future refactor can't silently regress it.
+    """
+
+    class _BoomError(Exception):
+        pass
+
+    @staticmethod
+    async def _raising_postcode_lookup(postcode: str) -> dict[str, Any]:
+        raise TestToolErrorHandling._BoomError(
+            f"pretend 404 for {postcode}"
+        )
+
+    @classmethod
+    def _raising_tool(cls) -> StructuredTool:
+        """Tool that always raises — simulates postcodes.io 404 / Zoopla 403."""
+
+        return StructuredTool.from_function(
+            name="lookup_postcode",
+            description="Stub that always raises to simulate an upstream API failure.",
+            coroutine=cls._raising_postcode_lookup,
+        )
+
+    @classmethod
+    def _build_agent_with_raising_tool(cls) -> PropertyAgent:
+        """Monkey-patch ``build_tools`` so the agent uses only the raising stub.
+
+        We replace the module-level hook rather than patching the
+        ``ToolContext`` so the ``ToolNode`` gets exactly one tool: the
+        one we control.
+        """
+
+        import uk_property_agent.agent as agentmod
+        import uk_property_agent.tools as toolmod
+
+        raising = cls._raising_tool()
+        original_build = toolmod.build_tools
+
+        def _patched(_ctx: ToolContext | None = None) -> list[StructuredTool]:
+            return [raising]
+
+        toolmod.build_tools = _patched  # type: ignore[assignment]
+        agentmod.build_tools = _patched  # type: ignore[assignment]
+        try:
+            model = ToolCallingFakeModel(
+                responses=[
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "lookup_postcode",
+                                "args": {"postcode": "CB1 1AA"},
+                                "id": "tc-boom",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(
+                        content=(
+                            "That postcode looks off — could you double-check it?"
+                        )
+                    ),
+                ]
+            )
+            return PropertyAgent(model=model, checkpointer=InMemorySaver())
+        finally:
+            toolmod.build_tools = original_build
+            agentmod.build_tools = original_build
+
+    async def test_raising_tool_becomes_tool_message_error(self) -> None:
+        """ToolNode converts the raised exception into a ToolMessage.
+
+        Without this, Gemini rejects the next turn with INVALID_CHAT_HISTORY
+        because the AIMessage has a tool_call with no matching ToolMessage.
+        """
+
+        agent = self._build_agent_with_raising_tool()
+        answer = await agent.ainvoke("Find houses near CB1 1AA", thread_id="err-smoke")
+        assert "double-check" in answer
+
+        state = agent.graph.get_state({"configurable": {"thread_id": "err-smoke"}})
+        messages = state.values.get("messages", [])
+
+        tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
+        assert len(tool_messages) == 1, (
+            "exactly one ToolMessage should close the AIMessage's tool_call"
+        )
+        tm = tool_messages[0]
+        assert tm.tool_call_id == "tc-boom"
+        assert tm.content.startswith("[tool-error] ")
+        assert "_BoomError" in tm.content
+        assert "CB1 1AA" in tm.content
+
+    async def test_tool_error_allows_follow_up_turn(self) -> None:
+        """After the error the thread is still valid — a second turn doesn't crash.
+
+        This is the regression: before the fix, the Chainlit user sent
+        "hello" after a failed tool call and Gemini refused the replay.
+        We don't need a live provider to assert it: checking that the
+        checkpointed history has no orphan tool_calls is sufficient, as
+        that's exactly the invariant Gemini enforces.
+        """
+
+        agent = self._build_agent_with_raising_tool()
+        await agent.ainvoke("Find houses near CB1 1AA", thread_id="err-replay")
+
+        state = agent.graph.get_state({"configurable": {"thread_id": "err-replay"}})
+        messages = state.values.get("messages", [])
+
+        open_tool_calls: set[str] = set()
+        for msg in messages:
+            tcs = getattr(msg, "tool_calls", None) or []
+            for tc in tcs:
+                tid = tc.get("id") if isinstance(tc, dict) else None
+                if tid:
+                    open_tool_calls.add(tid)
+            if isinstance(msg, ToolMessage) and msg.tool_call_id in open_tool_calls:
+                open_tool_calls.discard(msg.tool_call_id)
+
+        assert open_tool_calls == set(), (
+            f"orphan tool_calls would break the next Gemini turn: {open_tool_calls}"
+        )
+
+    def test_all_built_tools_carry_error_handler(self) -> None:
+        """Belt-and-suspenders: every ``StructuredTool`` also has ``handle_tool_error`` set.
+
+        The ``ToolNode``-level handler is the primary defence (catches
+        arbitrary ``Exception``), but we also flag ``StructuredTool``
+        itself so ``ToolException`` raised explicitly by a tool gets
+        handled within the tool's tracing context — cleaner LangSmith
+        traces.
+        """
+
+        from uk_property_agent.tools import _format_tool_error, build_tools
+
+        for tool in build_tools():
+            assert tool.handle_tool_error is _format_tool_error, (
+                f"{tool.name} is missing the shared error handler"
+            )

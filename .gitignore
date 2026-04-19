@@ -76,3 +76,11 @@ data/raw/
 *.pkl
 *.joblib
 models/checkpoints/
+
+# Chainlit runtime pollution (chainlit auto-creates these in cwd when
+# launched outside our seeded ~/.uk-property-agent/web/ runtime dir).
+# The canonical defaults live in packages/agent/src/uk_property_agent/_web_defaults/.
+.chainlit/
+/chainlit.md
+**/packages/*/chainlit.md
+.files/

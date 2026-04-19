@@ -9,7 +9,8 @@ packages here.
 | Metric | Value |
 |---|---|
 | Packages shipped | 8 (`scrapers`, `listings`, `apis`, `apify_client`, `geo`, `avm`, `agent`, `data`) |
-| Tests (mocked) | **1092 green** across `packages/` (+134 in `packages/agent` — Agent v3 streaming narrative added 3 graph-level streaming tests on top of the 131 multi-provider + dossier + cache baseline) |
+| Tests (mocked) | **1138 green** across `packages/` (+180 in `packages/agent` — Agent v4 added 22 Chainlit-renderer tests + 14 REPL tests + 6 checkpointer tests on top of v3, and v4.1 added 3 tool-error-handling tests + 5 Chainlit self-heal tests after fixing the Gemini "orphan tool_call" regression; minus 4 Gradio-era tests removed with the `web.py` deletion) |
+| Agent surfaces | **3**: `property-agent ask` (one-shot CLI), `property-agent chat` (REPL), `property-agent serve` (Chainlit web UI). All share the same `PropertyAgent` + tool context + checkpointer. |
 | Live smoke probes | **18 green** (18 API-level: postcodes, HMLR, police, EA flood, planning.data, Overpass, ONS Beta, **Nomis (generic `observations`)**, **Natural England (4/5 layers post-2025 Defra migration)**, **Contracts Finder**, VOA, Idox ArcGIS Lambeth, Idox HTML Westminster, Rightmove/Zoopla/OnTheMarket parsers, listings live GET, agent chain), **2 credential-skip** (EPC + Companies House), **0 fail** |
 
 ---
@@ -126,9 +127,13 @@ Consumer-tier: **A10 `uk-avm` actor dispatcher DONE on 2026-04-18** — `method`
 - **Optional dependency groups** (v3): `uk-property-agent[anthropic]` / `[openai]` / `[gemini]` / `[all]` in `packages/agent/pyproject.toml` so tooling around a specific provider doesn't pull the other two SDKs.
 - **Streaming narrative output (v3 polish, 2026-04-19)**: `PropertyAgent.astream_narrative(question)` — token-level async iterator over the final LLM narrative, powered by LangGraph's `stream_mode="messages"`. Filters out tool-call chunks so the caller only sees prose. `PropertyAgent.astream_events(question)` emits a structured event stream — `{"type": "tool_call"\|"tool_result"\|"narrative_chunk"\|"final"}` — for richer UIs that want to interleave tool reasoning with streamed prose. The existing `astream(question)` stays around for graph-level state updates. All three methods gracefully fall back to a buffered final emission when the underlying chat model doesn't expose token streaming (e.g. some fakes and older OpenAI routes), so the return shape is stable regardless of provider.
 - CLI: `property-agent ask "Tell me about CB1 2JW"`, `property-agent ask --stream "..."` (narrative tokens → stdout, tool-call + tool-result events → stderr; plain buffered print without `--stream`), `property-agent ask --provider openai/gpt-4o --task dossier "..."`, `property-agent ask --show-provider "..."`, `property-agent env` (table view) / `property-agent env --json` (machine-readable LLM + infra snapshot).
-- Tests: **134** (131 v3 close + 3 new in `test_agent_graph.py`: `astream_narrative` yields final-answer text, filters the tool-call turn, and `astream_events` emits the full `tool_call → tool_result → narrative_chunk → final` sequence; `test_agent_cli.py` `test_ask_streams_narrative_to_stdout_and_tools_to_stderr` exercises the CLI `--stream` flag wiring end-to-end)
+- **Multi-turn memory (v4, 2026-04-19)**: `PropertyAgent(checkpointer=..., thread_id=...)` wires a LangGraph checkpointer so successive calls against the same `thread_id` see the full `messages` list. Default checkpointer is `langgraph.checkpoint.memory.InMemorySaver` (per-process, no network). `ainvoke`, `astream`, `astream_narrative`, and `astream_events` all accept an optional `thread_id=` kwarg that overrides the instance default — the REPL and the Chainlit app use this to key memory per conversation / per tab.
+- **Interactive REPL (v4)**: `property-agent chat` drops into a terminal loop backed by the memory checkpointer. Slash commands mirror the `ask` flags so a single session can hop providers + toggle streaming without restarting: `/help`, `/clear` (reset thread, keep provider), `/provider SLUG`, `/tools`, `/stream on|off`, `/exit`. Implementation in `uk_property_agent.repl` (`ChatLoop`, `ChatLoopOptions`, `build_chat_loop`) is framework-free — takes injected stdin/stdout + a session factory, so the same logic is reused by the CLI wiring and exercised in tests without a TTY.
+- **Chainlit web UI (v4)**: `property-agent serve` launches a locally-hosted web chat over the same agent. Two-module split — `chainlit_app.py` holds only the `@cl.on_chat_start` / `@cl.on_message` / `@cl.set_starters` decorators and shells out to `module_path()` for the CLI; `chainlit_render.py` owns the `ChainlitRenderer` dataclass, `ChainlitSession`, `build_session`, and `swap_provider`. The split is mandatory because Chainlit loads the entry-point file via `importlib.util.spec_from_file_location` without registering it in `sys.modules`, which breaks `@dataclass` forward-ref resolution. `ChainlitRenderer` translates `astream_events` (`tool_call` → `tool_result` → `narrative_chunk` → `final`) into `cl.Step` + `cl.Message` components, correlating tool call and result events by `tool_call_id` so parallel tool calls render as independent collapsible panels. Provider / task / temperature flow through as `PROPERTY_AGENT_WEB_*` env vars so the Chainlit module has no argparse coupling. On first `property-agent serve` the CLI seeds `~/.uk-property-agent/web/` with bundled `chainlit.md` + `.chainlit/config.toml` (app name, dark theme, wide layout, four starter prompts) so the demo is branded out of the box without polluting the cwd. Demo-only: no auth, no rate limiting, no persistence.
+- **`[web]` optional extra**: `uk-property-agent[web]` pulls in `chainlit>=2.0`. `chainlit_config.toml` + `chainlit.md` are force-included in the wheel via `[tool.hatch.build.targets.wheel.force-include]`.
+- Tests: **172** (134 v3 close + 42 new in v4 − 4 deleted Gradio tests): `test_agent_repl.py` (14 — slash commands, streaming + non-streaming output, history reset semantics, provider swap preserving `thread_id`), `test_agent_chainlit_app.py` (22 — `ChainlitRenderer` against `FakeMessage`/`FakeStep` fakes exercising narrative streaming, parallel tool-call-id correlation, orphaned tool results, `_short_input` / `_short_output` truncation, `build_session` + `swap_provider` preserving checkpointer + thread id), `test_agent_graph.py` gained 6 tests covering `checkpointer=` + `thread_id=` plumbing across `ainvoke` / `astream_narrative` / `astream_events`.
 
-Status: **ALPHA (v3 streaming shipped 2026-04-19)**. Core flow works with 23 tools + dual-mode delegation on five paid-tier-worthy paths + isochrones + structured dossier + provider-aware prompt caching + multi-provider routing across Anthropic / OpenAI / Gemini + streaming narrative on top of the typed dossier. Next: deprecating the per-source tools once the model reliably picks the dossier first; optional bring-up of LangGraph checkpoints for multi-turn conversation state.
+Status: **ALPHA (v4 interactive shipped 2026-04-19)**. Core flow works with 23 tools + dual-mode delegation on five paid-tier-worthy paths + isochrones + structured dossier + provider-aware prompt caching + multi-provider routing across Anthropic / OpenAI / Gemini + streaming narrative + **three interactive surfaces (CLI `ask`, CLI `chat` REPL, Chainlit web demo) sharing the same agent + memory checkpointer**. Next: deprecating the per-source tools once the model reliably picks the dossier first; optional migration from `InMemorySaver` to `SqliteSaver` or `PostgresSaver` once a SaaS-vs-CLI decision is made on conversation persistence.
 
 ---
 
@@ -204,6 +209,8 @@ code paths production would. Outputs `[OK]` / `[FAIL]` per probe.
 - [x] `packages/agent`: structured final output — `PropertyDossier` Pydantic model + `build_property_dossier` orchestrator returning a typed dossier across postcode / AVM / PPD / neighbourhood / crime / flood / EPC / planning, with partial-failure surfacing (2026-04-19)
 - [x] `packages/agent`: **multi-provider routing + per-task model pinning + provider-aware prompt caching** — `providers.py` module (Anthropic / OpenAI / Gemini), `AGENT_MODEL_<TASK>` env, `[anthropic]` / `[openai]` / `[gemini]` / `[all]` optional-deps, CLI `--provider` / `--model` / `--task` / `--show-provider` + `env --json` (2026-04-19)
 - [x] `packages/agent`: **streaming narrative output** via LangGraph `stream_mode="messages"` — `PropertyAgent.astream_narrative(...)` + `astream_events(...)` + CLI `--stream` flag (narrative → stdout, tool events → stderr); graceful fallback to buffered emission on models without token streaming (2026-04-19)
+- [x] `packages/agent`: **interactive surfaces (v4)** — `InMemorySaver` checkpointer + `thread_id` plumbing, `property-agent chat` REPL with slash commands, `property-agent serve` Chainlit web demo (branded landing, per-tab memory, collapsible tool steps, four starter prompts), `[web]` optional extra, LangSmith env check in `property-agent env` (2026-04-19)
+- [x] `packages/agent`: **MCP sibling repo cut from roadmap** — `uk-property-agent-mcp` deleted; demo surface is the Chainlit web UI, not Claude Desktop / Cursor. The agent's public API is MCP-ready and the wrapper can be brought back later if the audience shifts (2026-04-19)
 
 ### Infra
 - [ ] GitHub Actions CI (lint + test + smoke)
@@ -363,12 +370,187 @@ produced instead of showing a spinner while the full response buffers.
   receives one big chunk followed by `final` — but real token
   streaming only kicks in for provider-native streaming endpoints.
   Documented behaviour, not a defect.
-* LangGraph checkpoints are not yet wired — a fresh `PropertyAgent`
-  instance per question is still the pattern. Adding a checkpointer
-  would enable multi-turn conversation state without re-sending
-  history; deferred to a follow-up session because it's orthogonal
-  to streaming and requires a storage decision (in-memory vs SQLite
-  vs Postgres) that's blocked on the SaaS-vs-CLI call.
+* ~~LangGraph checkpoints are not yet wired~~ **resolved in v4 below**
+  — an `InMemorySaver` checkpointer now threads through
+  `PropertyAgent` + `thread_id`, enabling multi-turn state in the
+  REPL and the web UI without re-sending history. SQLite / Postgres
+  savers remain deferred until a SaaS-vs-CLI call is made.
+
+---
+
+## 2026-04-19 — Agent v4 (interactive surfaces: memory + REPL + Chainlit demo)
+
+The final v4 surface brings the agent to humans. Three interactive
+surfaces ship together — CLI `chat` REPL, Chainlit web demo, and
+shared memory plumbing that makes both possible. The **MCP wrapper
+that was on the v3 roadmap was cut** on the same pass: the target
+audience for this demo is not Claude Code / Cursor users; we
+deliberately kept the surface focused on a browser UI anyone can
+open.
+
+### What landed
+
+| Piece | Where | Notes |
+|---|---|---|
+| `PropertyAgent(checkpointer=..., thread_id=...)` | `packages/agent/src/uk_property_agent/agent.py` | Opt-in LangGraph `Checkpointer` injection. Default is `langgraph.checkpoint.memory.InMemorySaver`. Every async entry point (`ainvoke`, `astream`, `astream_narrative`, `astream_events`) accepts `thread_id=` so callers can multiplex sessions against the same `PropertyAgent` instance. When a `thread_id` is set, the graph reads prior `messages` from the checkpointer and appends the new turn, so follow-ups see the full conversation without the caller re-sending anything. Tool-result events also carry the upstream `tool_call_id` now so the UI can correlate parallel tool calls. |
+| `ChatLoop` + `ChatLoopOptions` + `build_chat_loop(...)` | `packages/agent/src/uk_property_agent/repl.py` | Framework-agnostic REPL core: takes injected `stdin`/`stdout` streams + a session factory, so tests drive it without a TTY. Slash commands (`/help`, `/clear`, `/provider SLUG`, `/tools`, `/stream on|off`, `/exit`) all mutate the in-memory session rather than rebuilding the agent — `/clear` just rotates to a new `thread_id`, `/provider` swaps the chat model while preserving the checkpointer + thread id. Streams tool calls + narrative chunks to stdout with a minimal ANSI style so it's legible under `less` / pipes too. |
+| `property-agent chat` CLI subcommand | `packages/agent/src/uk_property_agent/cli.py` | Thin wrapper around `build_chat_loop(...)`. Flags: `--provider`, `--model`, `--task`, `--temperature`, `--no-stream`. Provider resolution uses the same `_resolve_spec` helper as `ask`, so env-var precedence is consistent across both commands. |
+| `chainlit_app.py` (thin) + `chainlit_render.py` (fat) | `packages/agent/src/uk_property_agent/` | Two-module split forced by Chainlit's `spec_from_file_location` loader: the entry-point file has no `@dataclass` so Chainlit can load it under any module path; all dataclasses (`ChainlitRenderer`, `ChainlitSession`), the renderer logic, `build_session`, `swap_provider`, and `session_banner` live in the neighbouring `chainlit_render.py` which imports normally. `@cl.set_starters` surfaces four demo prompts on the landing screen (Cambridge family homes, SW2 3RX dossier, N1 commute isochrone, Elizabeth St sold prices). |
+| `ChainlitRenderer` event pump | `chainlit_render.py` | Consumes `astream_events` and drives `cl.Step` + `cl.Message` components via injected factories. Correlates tool-call / tool-result events by `tool_call_id` so parallel tool calls render as independent collapsible panels; handles orphaned results (result without a matching call) by creating a synthetic step with an unknown-source banner; truncates tool inputs / outputs with `_short_input` / `_short_output` so very long JSON bodies don't blow the UI. |
+| CLI `property-agent serve` | `packages/agent/src/uk_property_agent/cli.py` | Shells out to `chainlit run <module_path()>` after seeding `~/.uk-property-agent/web/`. Flags: `--host`, `--port`, `--headless`, plus provider/model/task/temperature (passed through as `PROPERTY_AGENT_WEB_*` env vars so the Chainlit file has no argparse coupling). The runtime-dir seeder copies bundled `chainlit.md` + `.chainlit/config.toml` on first run and leaves user edits alone on subsequent runs. |
+| Bundled Chainlit config + welcome | `packages/agent/src/uk_property_agent/_web_defaults/` | `chainlit_config.toml` sets UI name `UK Property Intelligence`, dark theme, wide layout, disables MCP / audio / upload widgets. `chainlit.md` is the landing copy: lists the four tool categories, flags demo-only / no-auth status, and explains per-tab memory. Both force-included in the wheel via `[tool.hatch.build.targets.wheel.force-include]`. |
+| `[web]` optional extra | `packages/agent/pyproject.toml` | `uk-property-agent[web]` pulls `chainlit>=2.0`. Keywords updated (`chainlit` in, `mcp` / `gradio` out). Version bumped to `0.4.0`. |
+| LangSmith env check | `cli.py` `_run_env` | `property-agent env` (and `env --json`) now reports `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` alongside the provider + data-API rows. No code change was needed for tracing itself — LangChain picks up the env vars automatically; the `env` surface just makes it obvious whether they're set. |
+
+### Tests
+
+**42 new tests** across three files:
+
+* `packages/agent/tests/test_agent_repl.py` — **14 tests**: `/help`,
+  `/clear` resets thread id but keeps provider, `/provider SLUG`
+  swaps the chat model without touching memory, `/tools` lists the
+  current tool set, `/stream on|off` toggles inline rendering,
+  `/exit` + EOF return exit code 0, streaming output routes tool
+  events and narrative correctly, non-streaming path still uses the
+  checkpointer, unrecognised slash commands print a clear error.
+* `packages/agent/tests/test_agent_chainlit_app.py` — **22 tests**:
+  `ChainlitRenderer` against `FakeMessage` / `FakeStep` fakes,
+  including narrative streaming (multiple chunks into one
+  `cl.Message`), tool-call rendering as a `cl.Step`, call → result
+  correlation by `tool_call_id`, parallel tool calls keep their own
+  step, orphaned tool result creates a synthetic step, `_short_input`
+  truncates long JSON without breaking UTF-8, `_short_output` caps at
+  280 chars with ellipsis, `build_session` threads
+  `provider` / `temperature` / `task` through to
+  `PropertyAgent`, `swap_provider` preserves the checkpointer +
+  `thread_id` across provider swaps, `session_banner` mentions the
+  resolved provider / model / tool count.
+* `packages/agent/tests/test_agent_graph.py` — **6 new tests** on
+  top of the v3 streaming suite: `ainvoke(thread_id=...)` remembers
+  prior turns, `astream_narrative(thread_id=...)` reads checkpointed
+  history, `astream_events(thread_id=...)` emits tool results with
+  the upstream `tool_call_id`, two `PropertyAgent` instances sharing
+  a checkpointer + thread see each other's writes, fresh
+  `thread_id=` on the same instance starts a clean conversation,
+  default thread id is stable within an instance.
+
+### Gaps fixed during this pass
+
+1. **`astream_events` tool-result events lost their `tool_call_id`.**
+   Chainlit needs the id to correlate call + result into one
+   collapsible step. Added `"id": tc.get("id")` to the `tool_call`
+   branch and `"id": getattr(message_chunk, "tool_call_id", None)`
+   to the `tool_result` branch of `PropertyAgent._stream_events`.
+2. **Chainlit module loader broke `@dataclass`.** `chainlit_app.py`
+   used to hold `ChainlitRenderer` as a dataclass, which crashed at
+   import time because Chainlit loads the file with
+   `importlib.util.spec_from_file_location` and never registers it
+   in `sys.modules` — the dataclass decorator's forward-ref
+   resolution then calls `sys.modules.get(cls.__module__)` and gets
+   `None`. Resolved by splitting rendering logic into a normally-
+   importable `chainlit_render.py`.
+3. **`property-agent serve` littered the cwd with Chainlit files.**
+   Chainlit auto-creates `chainlit.md` + `.chainlit/config.toml` in
+   its working directory on first run. We now pre-seed those files
+   in `~/.uk-property-agent/web/` from bundled defaults and `cd`
+   the child process into that directory before execing
+   `chainlit run`. Idempotent — the seeder doesn't stomp on user
+   edits.
+4. **Nested `asyncio.run()` in tests.** Sync-calling
+   `cli.main()` from an `async def` test crashed with
+   "cannot be called from a running event loop" because
+   `cli.main` wraps coroutines via `asyncio.run` internally.
+   Converted the affected REPL tests to synchronous `def`.
+
+---
+
+## 2026-04-19 — Agent v4.1 (tool error containment + self-healing UI)
+
+Hotfix on the v4 surfaces. Field-testing the Chainlit demo against
+Gemini 2.5 Pro surfaced a graph-level crash any time an agent tool
+raised an exception upstream — e.g. `postcodes.io` returning `404` on
+a hallucinated postcode or Zoopla Cloudflare-blocking with `403`.
+LangGraph's default `ToolNode` handler only swallows
+`ToolInvocationError`; arbitrary `Exception` re-raised through the
+graph, killing the turn mid-stream and — crucially — leaving an
+`AIMessage(tool_calls=...)` in the checkpointer **without a matching
+`ToolMessage`**. Gemini then hard-rejected every subsequent turn on
+that thread with `INVALID_CHAT_HISTORY: Found AIMessages with
+tool_calls that do not have a corresponding ToolMessage`, so the user
+couldn't even type "hello" to recover.
+
+### What landed
+
+| Piece | Where | Notes |
+|---|---|---|
+| `_format_tool_error(error: Exception) -> str` | `packages/agent/src/uk_property_agent/tools.py` | Stable LLM-readable serialiser: `"[tool-error] <Type>: <msg>"`. Exception type annotated as `Exception` (not `BaseException`) so LangGraph's `_infer_handled_types` accepts it — the helper rejects anything outside `Exception.__mro__`. |
+| Explicit `ToolNode(tools, handle_tool_errors=_format_tool_error)` | `packages/agent/src/uk_property_agent/agent.py` | `PropertyAgent` now builds the tool node itself and passes it to `create_react_agent` as `tools=<ToolNode>`, so every tool exception becomes a `ToolMessage` the LLM can read and react to (retry with different args, apologise, switch tool). The graph no longer persists orphan tool_calls. |
+| `StructuredTool.handle_tool_error` also wired | `packages/agent/src/uk_property_agent/tools.py` | Belt-and-suspenders: inside `build_tools()` every returned tool has `handle_tool_error = _format_tool_error`. Handles explicit `ToolException` raises within the tool's own tracing context for cleaner LangSmith traces — the ToolNode handler is the primary defence for everything else. |
+| `is_invalid_history_error(exc)` + `reset_thread(session)` | `packages/agent/src/uk_property_agent/chainlit_render.py` | Heuristic matcher + in-place session rotator. `reset_thread` keeps the same `PropertyAgent`, `ProviderSpec`, tool context, and `InMemorySaver` — only the `thread_id` rotates. Old thread state stays reachable for debugging, next turn starts fresh. |
+| `@cl.on_message` self-heal | `packages/agent/src/uk_property_agent/chainlit_app.py` | When the provider rejects replayed history, the handler now rotates the thread, shows a friendly "started a fresh thread" message, and retries the user's question on the healed session — so a user hitting the broken state doesn't have to hunt for the "New chat" button. |
+| `chainlit.md` tool-count accuracy | `packages/agent/src/uk_property_agent/_web_defaults/chainlit.md` | Was "20+ tools (23 with CH key)"; now correctly lists `17 by default … up to 24 with EPC + Companies House keys`. Seeded on first boot of `property-agent serve`. |
+
+### Tests
+
+**8 new tests** — every new code path locked in:
+
+* `packages/agent/tests/test_agent_graph.py::TestToolErrorHandling` — **3 tests**:
+  (a) a raising tool produces a `ToolMessage` whose `tool_call_id`
+      matches the originating AIMessage — verified by invoking the
+      *real* LangGraph `ToolNode` end-to-end, not a mock;
+  (b) after the error the checkpointed history has zero orphan
+      tool_calls, so the next Gemini turn would succeed;
+  (c) every tool returned from `build_tools()` carries
+      `_format_tool_error` as its `handle_tool_error`.
+* `packages/agent/tests/test_agent_chainlit_app.py::TestSessionHelpers` — **5 new tests**:
+  `reset_thread` rotates the id but preserves agent / checkpointer /
+  spec / tool context, plus a parametrised matcher for
+  `is_invalid_history_error` covering all three known provider
+  signatures (LangGraph's generic, OpenAI `INVALID_CHAT_HISTORY`,
+  Gemini `function response parts`) and a negative case for
+  unrelated exceptions (rate-limit, timeout).
+
+### Test count delta
+
+`packages/agent`: **172 → 180** tests. Monorepo total: **1130 → 1138**.
+
+### Recovery note for users mid-regression
+
+Users with an open Chainlit tab that hit the bug don't need to
+restart the server — after pulling this fix, the old session's
+broken thread is self-healed on the next message. The friendly
+"started a fresh thread" banner fires once and the user's question
+is retried on a valid history.
+
+---
+
+## 2026-04-19 — Agent v4 (interactive surfaces: memory + REPL + Chainlit demo)
+
+### Roadmap cut — MCP deferred
+
+The v3 plan listed an `uk-property-agent-mcp` sibling repo so the
+agent could be invoked as a Claude Desktop / Cursor MCP tool. The
+user's target demo audience isn't in those clients yet, so the
+whole scaffolding (and the mid-stream plan entry) was deleted.
+Easy to bring back later — the agent's public API
+(`PropertyAgent.ainvoke` / `astream_events` + `build_tools`) is
+MCP-ready as-is; an MCP wrapper would be a ~200-line adapter
+rather than a redesign.
+
+### Known follow-ups (not blocking v4)
+
+* `InMemorySaver` is per-process; reloading the REPL or restarting
+  Chainlit drops history. Switching to `SqliteSaver` (stdlib-only)
+  or `PostgresSaver` (network) is a one-line constructor change on
+  `PropertyAgent(checkpointer=...)`; postponed until a SaaS-vs-CLI
+  persistence decision is made.
+* No OAuth / auth on the web UI. Deliberately demo-only today;
+  Chainlit supports header auth + OAuth, but enabling it would
+  push this past "local demo" into "hosted product" which is a
+  separate decision.
+* LangSmith wiring is env-var-only. A `property-agent trace`
+  command that opens the latest run in a browser would be a nice
+  ergonomic win; deferred.
 
 ---
 
