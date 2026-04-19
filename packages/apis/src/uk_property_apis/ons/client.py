@@ -113,3 +113,44 @@ class ONSClient(BaseAPIClient):
             '{"time":"2019-20","measureofwellbeing":"anxiety","estimate":"average-mean"}',
         ) | {geo_dim: la_code}
         return await self.observations(dataset_id, edition=edition, version=ver, dimension_filters=filters)
+
+    async def census_table(
+        self,
+        table_id: str,
+        geography: str,
+        *,
+        edition: str = "2021",
+        version: int = 1,
+    ) -> ONSObservationsResponse:
+        """Return Census 2021 observations for a specific table and geography code.
+
+        Calls ``/datasets/{table_id}/editions/{edition}/versions/{version}/observations``
+        with ``ltla={geography}`` as the dimension filter (most Census tables use ``ltla``
+        for LSOA/MSOA/LA geographies).
+        """
+        return await self.observations(
+            table_id,
+            edition=edition,
+            version=version,
+            dimension_filters={"ltla": geography},
+        )
+
+    async def population(self, geography: str) -> ONSObservationsResponse:
+        """Census 2021 TS001 — usual resident population by area."""
+        return await self.census_table("TS001", geography)
+
+    async def household_composition(self, geography: str) -> ONSObservationsResponse:
+        """Census 2021 TS003 — household composition."""
+        return await self.census_table("TS003", geography)
+
+    async def housing_tenure(self, geography: str) -> ONSObservationsResponse:
+        """Census 2021 TS044 — housing tenure (owner-occupied, rented, etc.)."""
+        return await self.census_table("TS044", geography)
+
+    async def ethnic_group(self, geography: str) -> ONSObservationsResponse:
+        """Census 2021 TS021 — ethnic group."""
+        return await self.census_table("TS021", geography)
+
+    async def qualifications(self, geography: str) -> ONSObservationsResponse:
+        """Census 2021 TS067 — highest level of qualification."""
+        return await self.census_table("TS067", geography)
