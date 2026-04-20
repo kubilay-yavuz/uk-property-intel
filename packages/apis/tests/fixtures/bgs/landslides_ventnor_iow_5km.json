@@ -1,0 +1,709 @@
+{
+    "displayFieldName": "LANDSLIDE_NAME",
+    "fieldAliases": {
+        "SURVEY_NO": "SURVEY_NO",
+        "EASTING": "EASTING",
+        "NORTHING": "NORTHING",
+        "LANDSLIDE_NUMBER": "LANDSLIDE_NUMBER",
+        "LANDSLIDE_NAME": "LANDSLIDE_NAME",
+        "LOCALITY_DETAILS": "LOCALITY_DETAILS",
+        "PLUS_OR_MINUS_METRES": "PLUS_OR_MINUS_METRES",
+        "GRID_CHECKED_BY_BGS": "GRID_CHECKED_BY_BGS",
+        "FIRST_KNOWN_DATE_YEAR": "FIRST_KNOWN_DATE_YEAR",
+        "LAST_KNOWN_DATE_YEAR": "LAST_KNOWN_DATE_YEAR",
+        "LS_ID": "LS_ID",
+        "FIRST_KNOWN_DATE": "FIRST_KNOWN_DATE",
+        "FIRST_KNOWN_DATE_PRECISION": "FIRST_KNOWN_DATE_PRECISION"
+    },
+    "geometryType": "esriGeometryPoint",
+    "spatialReference": {
+        "wkid": 4326,
+        "latestWkid": 4326
+    },
+    "fields": [
+        {
+            "name": "SURVEY_NO",
+            "type": "esriFieldTypeDouble",
+            "alias": "SURVEY_NO"
+        },
+        {
+            "name": "EASTING",
+            "type": "esriFieldTypeDouble",
+            "alias": "EASTING"
+        },
+        {
+            "name": "NORTHING",
+            "type": "esriFieldTypeDouble",
+            "alias": "NORTHING"
+        },
+        {
+            "name": "LANDSLIDE_NUMBER",
+            "type": "esriFieldTypeDouble",
+            "alias": "LANDSLIDE_NUMBER"
+        },
+        {
+            "name": "LANDSLIDE_NAME",
+            "type": "esriFieldTypeString",
+            "alias": "LANDSLIDE_NAME",
+            "length": 50
+        },
+        {
+            "name": "LOCALITY_DETAILS",
+            "type": "esriFieldTypeString",
+            "alias": "LOCALITY_DETAILS",
+            "length": 255
+        },
+        {
+            "name": "PLUS_OR_MINUS_METRES",
+            "type": "esriFieldTypeDouble",
+            "alias": "PLUS_OR_MINUS_METRES"
+        },
+        {
+            "name": "GRID_CHECKED_BY_BGS",
+            "type": "esriFieldTypeString",
+            "alias": "GRID_CHECKED_BY_BGS",
+            "length": 1
+        },
+        {
+            "name": "FIRST_KNOWN_DATE_YEAR",
+            "type": "esriFieldTypeString",
+            "alias": "FIRST_KNOWN_DATE_YEAR",
+            "length": 7
+        },
+        {
+            "name": "LAST_KNOWN_DATE_YEAR",
+            "type": "esriFieldTypeString",
+            "alias": "LAST_KNOWN_DATE_YEAR",
+            "length": 7
+        },
+        {
+            "name": "LS_ID",
+            "type": "esriFieldTypeOID",
+            "alias": "LS_ID"
+        },
+        {
+            "name": "FIRST_KNOWN_DATE",
+            "type": "esriFieldTypeString",
+            "alias": "FIRST_KNOWN_DATE",
+            "length": 18
+        },
+        {
+            "name": "FIRST_KNOWN_DATE_PRECISION",
+            "type": "esriFieldTypeString",
+            "alias": "FIRST_KNOWN_DATE_PRECISION",
+            "length": 50
+        }
+    ],
+    "features": [
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458426.0,
+                "NORTHING": 80467.0,
+                "LANDSLIDE_NUMBER": 1709.0,
+                "LANDSLIDE_NAME": "Knock Cliff",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002291,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.175440085093555,
+                "y": 50.620979278962885
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458033.0,
+                "NORTHING": 79799.0,
+                "LANDSLIDE_NUMBER": 1711.0,
+                "LANDSLIDE_NAME": "Luccombe Village",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002293,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.1810991113554203,
+                "y": 50.615012014005714
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458287.0,
+                "NORTHING": 80050.0,
+                "LANDSLIDE_NUMBER": 1712.0,
+                "LANDSLIDE_NAME": "Luccombe Village N",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002294,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.1774699920344813,
+                "y": 50.61724368722744
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458143.0,
+                "NORTHING": 78892.0,
+                "LANDSLIDE_NUMBER": 1714.0,
+                "LANDSLIDE_NAME": "Dunnose 1 (East End Slips)",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 1000.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "1810",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002295,
+                "FIRST_KNOWN_DATE": "01/01/1810",
+                "FIRST_KNOWN_DATE_PRECISION": "year"
+            },
+            "geometry": {
+                "x": -1.1796859991194564,
+                "y": 50.60684565843315
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458084.0,
+                "NORTHING": 78618.0,
+                "LANDSLIDE_NUMBER": 1715.0,
+                "LANDSLIDE_NAME": "Dunnose 2 (East End Slips)",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 1000.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "1818",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002296,
+                "FIRST_KNOWN_DATE": "01/12/1818",
+                "FIRST_KNOWN_DATE_PRECISION": "month"
+            },
+            "geometry": {
+                "x": -1.1805624715920215,
+                "y": 50.604387763233326
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 456031.0,
+                "NORTHING": 77787.0,
+                "LANDSLIDE_NUMBER": 1716.0,
+                "LANDSLIDE_NAME": "Ventnor (Undercliff)",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002297,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2096963676760302,
+                "y": 50.59711562039157
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 457378.0,
+                "NORTHING": 77837.0,
+                "LANDSLIDE_NUMBER": 1717.0,
+                "LANDSLIDE_NAME": "Ventnor",
+                "LOCALITY_DETAILS": "Isle of Wight",
+                "PLUS_OR_MINUS_METRES": 1000.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002298,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.1906585696330285,
+                "y": 50.597434770597
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 457127.0,
+                "NORTHING": 78152.0,
+                "LANDSLIDE_NUMBER": 1718.0,
+                "LANDSLIDE_NAME": "Ventnor (Upper Cliff)",
+                "LOCALITY_DETAILS": "Isle of Wight",
+                "PLUS_OR_MINUS_METRES": 1000.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002299,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.194156289388085,
+                "y": 50.600291783553274
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 454789.0,
+                "NORTHING": 77284.0,
+                "LANDSLIDE_NUMBER": 1719.0,
+                "LANDSLIDE_NAME": "Steephill/ Binnel Point",
+                "LOCALITY_DETAILS": "Isle of Wight",
+                "PLUS_OR_MINUS_METRES": 1000.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002300,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2273172189759634,
+                "y": 50.59271016944379
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 453509.0,
+                "NORTHING": 76748.0,
+                "LANDSLIDE_NUMBER": 1720.0,
+                "LANDSLIDE_NAME": "Whitwell Shute (St Lawrence Shute)",
+                "LOCALITY_DETAILS": "Isle of Wight",
+                "PLUS_OR_MINUS_METRES": 1000.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002301,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2454762236060575,
+                "y": 50.58800881388915
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 451860.0,
+                "NORTHING": 76222.0,
+                "LANDSLIDE_NUMBER": 1721.0,
+                "LANDSLIDE_NAME": "Binnel Bay",
+                "LOCALITY_DETAILS": "Isle of Wight, Isle of Wight",
+                "PLUS_OR_MINUS_METRES": 1000.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002302,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2688411941219975,
+                "y": 50.58342745364814
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 457223.0,
+                "NORTHING": 79952.0,
+                "LANDSLIDE_NUMBER": 1741.0,
+                "LANDSLIDE_NAME": "Shanklin Down",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002322,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.1925234880055346,
+                "y": 50.6164674980905
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 453857.0,
+                "NORTHING": 79998.0,
+                "LANDSLIDE_NUMBER": 1743.0,
+                "LANDSLIDE_NAME": "Stenbury Down",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002324,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2400900120763314,
+                "y": 50.617201091626356
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 453631.0,
+                "NORTHING": 80368.0,
+                "LANDSLIDE_NUMBER": 1744.0,
+                "LANDSLIDE_NAME": "Appuldurcombe",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002325,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2432307801779385,
+                "y": 50.62054895169317
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 456345.0,
+                "NORTHING": 80392.0,
+                "LANDSLIDE_NUMBER": 1749.0,
+                "LANDSLIDE_NAME": "St Martins Down",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002330,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2048660431198697,
+                "y": 50.620509177865
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 455575.0,
+                "NORTHING": 80336.0,
+                "LANDSLIDE_NUMBER": 1763.0,
+                "LANDSLIDE_NAME": "Wroxall W",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002344,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2157580012003162,
+                "y": 50.620079417495916
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458565.0,
+                "NORTHING": 81437.0,
+                "LANDSLIDE_NUMBER": 1769.0,
+                "LANDSLIDE_NAME": "Shanklin Esplanade",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "1984",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002350,
+                "FIRST_KNOWN_DATE": "13/12/1984",
+                "FIRST_KNOWN_DATE_PRECISION": "day"
+            },
+            "geometry": {
+                "x": -1.1733228745709308,
+                "y": 50.629687222114235
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 457933.0,
+                "NORTHING": 78958.0,
+                "LANDSLIDE_NUMBER": 15712.0,
+                "LANDSLIDE_NAME": "Luccombe",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100002443,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.1826431523266263,
+                "y": 50.60745995097148
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458307.0,
+                "NORTHING": 79567.0,
+                "LANDSLIDE_NUMBER": 1713.0,
+                "LANDSLIDE_NAME": "Luccombe Chine, Luccombe Village",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100010001,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.1772629056274204,
+                "y": 50.612898735036694
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458590.0,
+                "NORTHING": 81546.0,
+                "LANDSLIDE_NUMBER": 10736.0,
+                "LANDSLIDE_NAME": "Shanklin Beach Hotel",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "2001",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100010474,
+                "FIRST_KNOWN_DATE": "22/03/2001",
+                "FIRST_KNOWN_DATE_PRECISION": "week"
+            },
+            "geometry": {
+                "x": -1.1729522737268037,
+                "y": 50.630664815850054
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458681.0,
+                "NORTHING": 81706.0,
+                "LANDSLIDE_NUMBER": 16195.0,
+                "LANDSLIDE_NAME": "Shanklin Amusement Arcade",
+                "LOCALITY_DETAILS": "Shanklin, Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "1967",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100015064,
+                "FIRST_KNOWN_DATE": "01/01/1967",
+                "FIRST_KNOWN_DATE_PRECISION": "year"
+            },
+            "geometry": {
+                "x": -1.1716405144061182,
+                "y": 50.6320943598104
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458572.0,
+                "NORTHING": 81500.0,
+                "LANDSLIDE_NUMBER": 16196.0,
+                "LANDSLIDE_NAME": "Shanklin Esplanade",
+                "LOCALITY_DETAILS": "Shanklin, Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "1987",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100015065,
+                "FIRST_KNOWN_DATE": "01/03/1987",
+                "FIRST_KNOWN_DATE_PRECISION": "month"
+            },
+            "geometry": {
+                "x": -1.1732139938901867,
+                "y": 50.630253000296584
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458490.0,
+                "NORTHING": 79873.0,
+                "LANDSLIDE_NUMBER": 16213.0,
+                "LANDSLIDE_NAME": "Knock Cliff South",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100015087,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.17462859317058,
+                "y": 50.615631928162706
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 452660.0,
+                "NORTHING": 79423.0,
+                "LANDSLIDE_NUMBER": 16214.0,
+                "LANDSLIDE_NAME": "Stenbury Manor",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 10.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100015088,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.2570895248722027,
+                "y": 50.61213979219165
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 456220.0,
+                "NORTHING": 77768.0,
+                "LANDSLIDE_NUMBER": 17087.0,
+                "LANDSLIDE_NAME": "Southgrove Terrace",
+                "LOCALITY_DETAILS": "Ventnor, Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "2009",
+                "LS_ID": 100016003,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.20702907382548,
+                "y": 50.59692666041925
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458431.0,
+                "NORTHING": 80679.0,
+                "LANDSLIDE_NUMBER": 17798.0,
+                "LANDSLIDE_NAME": "Shanklin Cliffs",
+                "LOCALITY_DETAILS": "Isle of Wight",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "1979",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100017173,
+                "FIRST_KNOWN_DATE": "01/09/1979",
+                "FIRST_KNOWN_DATE_PRECISION": "month"
+            },
+            "geometry": {
+                "x": -1.1753362136671546,
+                "y": 50.62288496831432
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458535.0,
+                "NORTHING": 79810.0,
+                "LANDSLIDE_NUMBER": 17799.0,
+                "LANDSLIDE_NAME": "Yellow Ledge",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100017174,
+                "FIRST_KNOWN_DATE": "UNKNOWN",
+                "FIRST_KNOWN_DATE_PRECISION": "UNKNOWN"
+            },
+            "geometry": {
+                "x": -1.1740024908983602,
+                "y": 50.61506095683656
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 458272.0,
+                "NORTHING": 78982.0,
+                "LANDSLIDE_NUMBER": 17800.0,
+                "LANDSLIDE_NAME": "Rosecliffe Court, Dunnose",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "1910",
+                "LAST_KNOWN_DATE_YEAR": "UNKNOWN",
+                "LS_ID": 100017175,
+                "FIRST_KNOWN_DATE": "01/02/1910",
+                "FIRST_KNOWN_DATE_PRECISION": "month"
+            },
+            "geometry": {
+                "x": -1.1778490563016144,
+                "y": 50.60764208642538
+            }
+        },
+        {
+            "attributes": {
+                "SURVEY_NO": 1.0,
+                "EASTING": 452607.0,
+                "NORTHING": 76303.0,
+                "LANDSLIDE_NUMBER": 17801.0,
+                "LANDSLIDE_NAME": "Undercliff Drive",
+                "LOCALITY_DETAILS": "Isle of Wight, England",
+                "PLUS_OR_MINUS_METRES": 100.0,
+                "GRID_CHECKED_BY_BGS": "Y",
+                "FIRST_KNOWN_DATE_YEAR": "1951",
+                "LAST_KNOWN_DATE_YEAR": "1961",
+                "LS_ID": 100017176,
+                "FIRST_KNOWN_DATE": "01/01/1951",
+                "FIRST_KNOWN_DATE_PRECISION": "year"
+            },
+            "geometry": {
+                "x": -1.2582797039879074,
+                "y": 50.58408910446378
+            }
+        }
+    ],
+    "exceededTransferLimit": true
+}

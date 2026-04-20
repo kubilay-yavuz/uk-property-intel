@@ -11,12 +11,18 @@ All functions are pure: they accept an HTML ``str`` and return Pydantic models.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Final
 
 from pydantic import ValidationError
 from selectolax.parser import HTMLParser, Node
 
+from uk_property_scrapers._common import (
+    FLOORPLAN_CAPTION,
+    extract_uk_coords,
+    is_floorplan_url,
+)
 from uk_property_scrapers.schema import (
     Address,
     Agent,
@@ -221,9 +227,20 @@ def parse_detail_page(
     source_url: str | None = None,
     transaction_type: TransactionType = TransactionType.UNKNOWN,
 ) -> Listing | None:
-    """Parse an OnTheMarket property detail page into a single DETAIL Listing."""
+    """Parse an OnTheMarket property detail page into a single DETAIL Listing.
+
+    Hardening against hydrate-variant drift: OnTheMarket ships three subtly
+    different detail-page layouts (standard resale, new-homes spotlight,
+    no-agent-photo variant). Rather than chase each layout with a separate
+    CSS path, we also parse the ``__NEXT_DATA__`` JSON blob that ships with
+    every variant and use it as a fallback for price + address when the
+    primary selectors fail.
+    """
     tree = HTMLParser(html)
+    next_data = _parse_otm_next_data(html)
     url = source_url or _extract_canonical_detail_url(tree)
+    if not url and next_data:
+        url = next_data.get("source_url")
     if not url:
         return None
 
@@ -240,6 +257,8 @@ def parse_detail_page(
     address_raw = _parse_detail_address(tree)
     if not address_raw:
         address_raw = _parse_detail_address_from_document_title(tree)
+    if not address_raw and next_data:
+        address_raw = next_data.get("address")
     if not address_raw:
         return None
 
@@ -251,7 +270,12 @@ def parse_detail_page(
         tx = tx_from_h1
 
     price_raw, qualifier_raw = _parse_detail_price(tree)
+    if not price_raw and next_data:
+        price_raw = next_data.get("price_raw")
+        qualifier_raw = qualifier_raw or next_data.get("price_qualifier")
     amount_pence = _extract_price_pence(price_raw) if price_raw else None
+    if amount_pence is None and next_data:
+        amount_pence = next_data.get("amount_pence")
     sale_price, rent_price = _materialize_prices(
         raw=price_raw or "",
         qualifier_raw=qualifier_raw,
@@ -277,12 +301,14 @@ def parse_detail_page(
     description = _parse_detail_description(tree)
     summary = description[:280] + "…" if description and len(description) > 280 else description
 
-    image_urls = _parse_detail_images(tree)
+    image_urls = _parse_detail_images(tree, html)
     tenure = _parse_detail_tenure(tree)
     agent = _parse_detail_agent(tree)
     features = _parse_detail_features(tree)
     if features and rent_price is not None and ListingFeature.AUCTION in features:
         features.remove(ListingFeature.AUCTION)
+
+    coords = extract_uk_coords(html)
 
     address = Address(
         raw=address_raw,
@@ -304,6 +330,7 @@ def parse_detail_page(
         bathrooms=baths,
         tenure=tenure,
         address=address,
+        coords=coords,
         title=h1_text,
         summary=summary,
         description=description,
@@ -726,13 +753,79 @@ def _parse_detail_description(tree: HTMLParser) -> str | None:
     return _clean_whitespace(node.text(separator="\n"))
 
 
-def _parse_detail_images(tree: HTMLParser) -> list[Image]:
-    images: list[Image] = []
+_OTM_IMAGE_URL_RE: Final = re.compile(
+    r'https://media\.onthemarket\.com/properties/[^"\']+?\.(?:jpg|jpeg|png|webp)'
+)
+
+
+_OTM_SIZE_SUFFIX_RE: Final = re.compile(
+    r"-(?:\d+x\d+|original)\.(?:jpg|jpeg|png|webp)$", re.IGNORECASE
+)
+_OTM_SIZE_PART_RE: Final = re.compile(r"-(\d+)x(\d+)\.", re.IGNORECASE)
+
+
+def _otm_variant_score(url: str) -> tuple[int, int]:
+    """Rank two size variants of the same OTM image.
+
+    Prefers ``-original.*`` (highest fidelity) over any sized variant, then
+    largest width*height, then ``.jpg`` over ``.webp`` so downstream code
+    paths that don't speak webp still see a working image.
+    """
+    lowered = url.lower()
+    if "-original." in lowered:
+        size = 10**9
+    else:
+        match = _OTM_SIZE_PART_RE.search(url)
+        size = int(match.group(1)) * int(match.group(2)) if match else 0
+    is_jpg = 1 if lowered.endswith((".jpg", ".jpeg")) else 0
+    return (size, is_jpg)
+
+
+def _parse_detail_images(tree: HTMLParser, html: str) -> list[Image]:
+    """Collect every OnTheMarket media URL, tagging floorplan variants.
+
+    OnTheMarket's image grid is carousel-hydrated: gallery URLs live in the
+    raw HTML as inline JSON payloads (``"mediumUrl":"…/image-N-1024x1024.jpg"``
+    / ``"originalUrl":"…/floor-plan-N-original.jpg"``) rather than rendered
+    ``<img>`` tags. We scan every ``media.onthemarket.com/properties/…`` URL
+    in the raw HTML, then collapse size variants of the same asset (the CDN
+    ships ``-1024x1024``, ``-218x145``, ``-81x55``, ``-original`` + a webp
+    mirror of each) to a single canonical URL per asset, picking the highest
+    fidelity. Floorplans are tagged via :data:`FLOORPLAN_CAPTION`.
+    """
+    # Collect every candidate URL, preserving first-seen insertion order so
+    # floorplans and late-gallery photos both survive dedup rather than
+    # being truncated by an arbitrary per-match cap.
+    candidates: list[str] = []
     for img in tree.css('img[src^="https://media.onthemarket.com/properties/"]'):
         src = img.attributes.get("src") or ""
         if src.startswith("http"):
-            images.append(Image(url=src))  # type: ignore[arg-type]
+            candidates.append(src)
+    for match in _OTM_IMAGE_URL_RE.finditer(html):
+        candidates.append(match.group(0))
+
+    # Collapse size variants. Stem = URL without ``-WIDTHxHEIGHT.ext`` suffix,
+    # so ``/image-3-1024x1024.jpg``, ``/image-3-218x145.jpg``, and
+    # ``/image-3-1024x1024.webp`` all collapse to the same stem.
+    best_per_stem: dict[str, str] = {}
+    order: list[str] = []
+    for url in candidates:
+        stem = _OTM_SIZE_SUFFIX_RE.sub("", url)
+        current = best_per_stem.get(stem)
+        if current is None:
+            best_per_stem[stem] = url
+            order.append(stem)
+        elif _otm_variant_score(url) > _otm_variant_score(current):
+            best_per_stem[stem] = url
+
+    images: list[Image] = []
+    for stem in order:
+        url = best_per_stem[stem]
+        caption = FLOORPLAN_CAPTION if is_floorplan_url(url) else None
+        images.append(Image(url=url, caption=caption))  # type: ignore[arg-type]
+        if len(images) >= 60:
             break
+
     return images
 
 
@@ -930,3 +1023,90 @@ def _strip_query(url: str) -> str:
 
 def _build_raw_fields(**fields: str | int | None) -> dict[str, str]:
     return {k: str(v) for k, v in fields.items() if v not in (None, "")}
+
+
+# ── __NEXT_DATA__ hydrate fallback ──────────────────────────────────────────
+#
+# OnTheMarket is built on Next.js 13 and ships the full server state inside
+# a ``<script id="__NEXT_DATA__" type="application/json">`` tag on every
+# detail page. We use this as a belt-and-braces fallback for price + address
+# + URL when the primary CSS selectors fail (new-homes spotlight variant,
+# no-agent-photo variant, or generic selector drift after a deploy).
+
+_NEXT_DATA_RE: Final = re.compile(
+    r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
+    re.DOTALL,
+)
+_PRICE_STRING_RE: Final = re.compile(r'"price"\s*:\s*"([\d,]+)"')
+_DISPLAY_ADDRESS_RE: Final = re.compile(
+    r'"displayAddress"\s*:\s*"([^"]+)"'
+)
+
+
+def _parse_otm_next_data(html: str) -> dict[str, object] | None:
+    """Extract headline fields from OTM's ``__NEXT_DATA__`` blob.
+
+    Returns a dict with optional ``address``, ``price_raw``, ``amount_pence``,
+    ``source_url``. Returns ``None`` when the blob is absent or unparseable.
+    """
+    match = _NEXT_DATA_RE.search(html)
+    if not match:
+        return None
+
+    blob = match.group(1)
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError:
+        return None
+
+    result: dict[str, object] = {}
+
+    addr_match = _DISPLAY_ADDRESS_RE.search(blob)
+    if addr_match:
+        try:
+            result["address"] = json.loads(f'"{addr_match.group(1)}"')
+        except json.JSONDecodeError:
+            result["address"] = addr_match.group(1)
+
+    price_match = _PRICE_STRING_RE.search(blob)
+    if price_match:
+        raw = price_match.group(1)
+        try:
+            amount = int(raw.replace(",", ""))
+            result["amount_pence"] = amount * 100
+            result["price_raw"] = f"£{raw}"
+        except ValueError:
+            pass
+
+    seo = _walk_for_key(data, "seoLinks")
+    if isinstance(seo, list):
+        for link in seo:
+            if isinstance(link, dict) and link.get("rel") == "canonical":
+                canonical = link.get("url")
+                if isinstance(canonical, str) and "onthemarket.com" in canonical:
+                    result["source_url"] = canonical
+                    break
+
+    return result or None
+
+
+def _walk_for_key(data: object, target: str) -> object | None:
+    """Depth-first walk of ``data`` returning the first value stored under ``target``.
+
+    OnTheMarket's Next.js payload nests ``seoLinks`` several layers deep
+    inside ``props.pageProps.propertyDetails.*``; we avoid hard-coding the
+    path so minor layout reshuffles don't kill the fallback.
+    """
+    if isinstance(data, dict):
+        if target in data:
+            return data[target]
+        for value in data.values():
+            found = _walk_for_key(value, target)
+            if found is not None:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = _walk_for_key(item, target)
+            if found is not None:
+                return found
+    return None

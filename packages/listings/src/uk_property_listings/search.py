@@ -34,6 +34,7 @@ from uk_property_listings.urls import (
     build_onthemarket_search_url,
     build_rightmove_search_url,
     build_zoopla_search_url,
+    build_zoopla_search_url_fallback,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,13 +57,21 @@ async def crawl_zoopla_search(
     *,
     hydrate_details: bool = False,
 ) -> CrawlReport:
-    """Fetch a Zoopla search - paginate, parse, optionally fetch detail pages."""
+    """Fetch a Zoopla search - paginate, parse, optionally fetch detail pages.
+
+    If the slug-based URL's first page returns zero listings (Zoopla serves
+    an empty 200 for unknown location slugs), we retry with the slugless
+    ``q=``-only :func:`build_zoopla_search_url_fallback` variant before
+    giving up. This covers hamlets, new-build developments and
+    neighbourhood names that aren't in Zoopla's location dictionary.
+    """
     txn = _txn(query.transaction)
     return await _crawl_search(
         crawler=crawler,
         query=query,
         source=Source.ZOOPLA,
         url_builder=build_zoopla_search_url,
+        url_builder_fallback=build_zoopla_search_url_fallback,
         parse_search=lambda html, _url: zp.parse_search_results(html, transaction_type=txn),
         parse_detail=lambda html, url: zp.parse_detail_page(
             html, source_url=url, transaction_type=txn
@@ -122,13 +131,17 @@ async def _crawl_search(
     parse_search,
     parse_detail,
     hydrate_details: bool,
+    url_builder_fallback=None,
 ) -> CrawlReport:
     listings: dict[str, Listing] = {}
     errors: list[str] = []
     pages_fetched = 0
+    used_fallback = False
 
     for page in range(1, query.max_pages + 1):
-        url = url_builder(query, page=page)
+        # On page 1, if we've already fallen back, keep using the fallback builder.
+        active_builder = url_builder_fallback if used_fallback else url_builder
+        url = active_builder(query, page=page)
         try:
             result = await crawler.fetch(url, expect_search_markers=True)
         except FetcherError as exc:
@@ -146,6 +159,43 @@ async def _crawl_search(
             listings[key] = listing
             new_count += 1
         if new_count == 0:
+            # The slug-based URL returned a 200 with an empty result grid.
+            # Retry the *same* page number through the slugless ``q=``
+            # fallback once before giving up. This specifically catches
+            # Zoopla's "unknown location slug" failure mode — unknown slugs
+            # 200 with a header but no listings — and has no effect for
+            # portals that don't supply a fallback builder.
+            if (
+                page == 1
+                and url_builder_fallback is not None
+                and not used_fallback
+            ):
+                fallback_url = url_builder_fallback(query, page=page)
+                logger.info(
+                    "no %s listings at primary URL, retrying via fallback: %s",
+                    source.value,
+                    fallback_url,
+                )
+                try:
+                    result = await crawler.fetch(fallback_url, expect_search_markers=True)
+                except FetcherError as exc:
+                    errors.append(f"search page {page} fallback: {exc}")
+                    break
+                pages_fetched += 1
+                used_fallback = True
+                for listing in parse_search(result.html, result.final_url):
+                    key = f"{listing.source_id}"
+                    if key in listings:
+                        continue
+                    listings[key] = listing
+                    new_count += 1
+                if new_count == 0:
+                    logger.info(
+                        "no new %s listings via fallback either; stopping",
+                        source.value,
+                    )
+                    break
+                continue
             logger.info("no new %s listings on page %d; stopping", source.value, page)
             break
 

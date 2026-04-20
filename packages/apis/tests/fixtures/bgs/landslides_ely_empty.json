@@ -1,0 +1,98 @@
+{
+    "displayFieldName": "LANDSLIDE_NAME",
+    "fieldAliases": {
+        "SURVEY_NO": "SURVEY_NO",
+        "EASTING": "EASTING",
+        "NORTHING": "NORTHING",
+        "LANDSLIDE_NUMBER": "LANDSLIDE_NUMBER",
+        "LANDSLIDE_NAME": "LANDSLIDE_NAME",
+        "LOCALITY_DETAILS": "LOCALITY_DETAILS",
+        "PLUS_OR_MINUS_METRES": "PLUS_OR_MINUS_METRES",
+        "GRID_CHECKED_BY_BGS": "GRID_CHECKED_BY_BGS",
+        "FIRST_KNOWN_DATE_YEAR": "FIRST_KNOWN_DATE_YEAR",
+        "LAST_KNOWN_DATE_YEAR": "LAST_KNOWN_DATE_YEAR",
+        "LS_ID": "LS_ID",
+        "FIRST_KNOWN_DATE": "FIRST_KNOWN_DATE",
+        "FIRST_KNOWN_DATE_PRECISION": "FIRST_KNOWN_DATE_PRECISION"
+    },
+    "geometryType": "esriGeometryPoint",
+    "spatialReference": {
+        "wkid": 4326,
+        "latestWkid": 4326
+    },
+    "fields": [
+        {
+            "name": "SURVEY_NO",
+            "type": "esriFieldTypeDouble",
+            "alias": "SURVEY_NO"
+        },
+        {
+            "name": "EASTING",
+            "type": "esriFieldTypeDouble",
+            "alias": "EASTING"
+        },
+        {
+            "name": "NORTHING",
+            "type": "esriFieldTypeDouble",
+            "alias": "NORTHING"
+        },
+        {
+            "name": "LANDSLIDE_NUMBER",
+            "type": "esriFieldTypeDouble",
+            "alias": "LANDSLIDE_NUMBER"
+        },
+        {
+            "name": "LANDSLIDE_NAME",
+            "type": "esriFieldTypeString",
+            "alias": "LANDSLIDE_NAME",
+            "length": 50
+        },
+        {
+            "name": "LOCALITY_DETAILS",
+            "type": "esriFieldTypeString",
+            "alias": "LOCALITY_DETAILS",
+            "length": 255
+        },
+        {
+            "name": "PLUS_OR_MINUS_METRES",
+            "type": "esriFieldTypeDouble",
+            "alias": "PLUS_OR_MINUS_METRES"
+        },
+        {
+            "name": "GRID_CHECKED_BY_BGS",
+            "type": "esriFieldTypeString",
+            "alias": "GRID_CHECKED_BY_BGS",
+            "length": 1
+        },
+        {
+            "name": "FIRST_KNOWN_DATE_YEAR",
+            "type": "esriFieldTypeString",
+            "alias": "FIRST_KNOWN_DATE_YEAR",
+            "length": 7
+        },
+        {
+            "name": "LAST_KNOWN_DATE_YEAR",
+            "type": "esriFieldTypeString",
+            "alias": "LAST_KNOWN_DATE_YEAR",
+            "length": 7
+        },
+        {
+            "name": "LS_ID",
+            "type": "esriFieldTypeOID",
+            "alias": "LS_ID"
+        },
+        {
+            "name": "FIRST_KNOWN_DATE",
+            "type": "esriFieldTypeString",
+            "alias": "FIRST_KNOWN_DATE",
+            "length": 18
+        },
+        {
+            "name": "FIRST_KNOWN_DATE_PRECISION",
+            "type": "esriFieldTypeString",
+            "alias": "FIRST_KNOWN_DATE_PRECISION",
+            "length": 50
+        }
+    ],
+    "features": []
+}

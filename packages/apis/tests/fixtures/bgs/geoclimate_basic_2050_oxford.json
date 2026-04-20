@@ -1,0 +1,58 @@
+{
+    "displayFieldName": "CLASS",
+    "fieldAliases": {
+        "CLASS": "CLASS",
+        "LEGEND": "LEGEND",
+        "VERSION": "VERSION",
+        "OBJECTID": "OBJECTID",
+        "Shape_Length": "Shape_Length",
+        "Shape_Area": "Shape_Area"
+    },
+    "fields": [
+        {
+            "name": "CLASS",
+            "type": "esriFieldTypeString",
+            "alias": "CLASS",
+            "length": 12
+        },
+        {
+            "name": "LEGEND",
+            "type": "esriFieldTypeString",
+            "alias": "LEGEND",
+            "length": 160
+        },
+        {
+            "name": "VERSION",
+            "type": "esriFieldTypeString",
+            "alias": "VERSION",
+            "length": 60
+        },
+        {
+            "name": "OBJECTID",
+            "type": "esriFieldTypeOID",
+            "alias": "OBJECTID"
+        },
+        {
+            "name": "Shape_Length",
+            "type": "esriFieldTypeDouble",
+            "alias": "Shape_Length"
+        },
+        {
+            "name": "Shape_Area",
+            "type": "esriFieldTypeDouble",
+            "alias": "Shape_Area"
+        }
+    ],
+    "features": [
+        {
+            "attributes": {
+                "CLASS": "Possible",
+                "LEGEND": "It is \u2018possible\u2019 that climate change will effect clay shrink-swell susceptibility and change the likelihood of ground movement, which causes subsidence.",
+                "VERSION": "GeoClimateGB_ShrinkSwell_2050_Average_Open_v1",
+                "OBJECTID": 840,
+                "Shape_Length": 92000,
+                "Shape_Area": 136000000
+            }
+        }
+    ]
+}

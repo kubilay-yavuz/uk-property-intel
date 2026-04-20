@@ -28,6 +28,11 @@ from typing import Final
 from pydantic import ValidationError
 from selectolax.parser import HTMLParser, Node
 
+from uk_property_scrapers._common import (
+    FLOORPLAN_CAPTION,
+    extract_uk_coords,
+    is_floorplan_url,
+)
 from uk_property_scrapers.schema import (
     Address,
     Agent,
@@ -245,13 +250,26 @@ def parse_detail_page(
     source (Zoopla exposes a clean ``schema.org`` payload on every detail page),
     and falls back to CSS-selector extraction for fields JSON-LD omits
     (tenure, agent, full amenities, description).
+
+    Defence in depth: Zoopla ships CSS-module class names (``Price_price__<hash>``,
+    ``page_titleWrapper__<hash>``) whose prefix is stable across deploys but
+    whose hash rotates. On top of CSS-prefix matching we also scan the
+    Next.js RSC hydration payload (``__next_f`` pushes) for the same price /
+    address / photo / coord data, so a hash drift in isolation cannot lose
+    the headline fields.
     """
     tree = HTMLParser(html)
     ld = _find_realestate_jsonld(tree)
-    if ld is None and source_url is None:
+    nextjs = _parse_zoopla_nextjs_payload(html)
+
+    if ld is None and source_url is None and nextjs is None:
         return None
 
-    url = _coerce_str(ld.get("mainEntityOfPage") if ld else None) or source_url
+    url = (
+        _coerce_str(ld.get("mainEntityOfPage") if ld else None)
+        or source_url
+        or (nextjs.get("source_url") if nextjs else None)
+    )
     if not url:
         return None
     source_id = _extract_listing_id(url)
@@ -269,6 +287,8 @@ def parse_detail_page(
 
     if not address_raw and ld:
         address_raw = _derive_address_from_ld_name(_coerce_str(ld.get("name")))
+    if not address_raw and nextjs:
+        address_raw = nextjs.get("address")
 
     if not address_raw:
         return None
@@ -280,6 +300,10 @@ def parse_detail_page(
         ld_price = offer.get("price") if isinstance(offer, dict) else None
         if isinstance(ld_price, (int, float)):
             amount_pence = round(float(ld_price) * 100)
+    if amount_pence is None and nextjs:
+        amount_pence = nextjs.get("amount_pence")
+    if not price_raw and nextjs and nextjs.get("price_raw"):
+        price_raw = nextjs["price_raw"]
 
     sale_price, rent_price = _materialize_prices(
         raw=price_raw or "",
@@ -303,11 +327,16 @@ def parse_detail_page(
     if not description and ld:
         description = _coerce_str(ld.get("description"))
 
-    image_urls = _parse_detail_images(tree)
+    image_urls = _parse_detail_images(
+        tree,
+        floorplan_urls=nextjs.get("floorplan_urls") if nextjs else None,
+    )
     if not image_urls and ld:
         img = _coerce_str(ld.get("image"))
         if img:
             image_urls = [Image(url=img)]  # type: ignore[arg-type]
+    if not image_urls and nextjs and nextjs.get("image_urls"):
+        image_urls = [Image(url=u) for u in nextjs["image_urls"]]  # type: ignore[arg-type]
 
     property_type_raw = _parse_detail_property_type(title or "")
     property_type = _infer_property_type(property_type_raw) if property_type_raw else PropertyType.UNKNOWN
@@ -330,6 +359,8 @@ def parse_detail_page(
     if features and rent_price is not None and ListingFeature.AUCTION in features:
         features.remove(ListingFeature.AUCTION)
 
+    coords = extract_uk_coords(html)
+
     return Listing(
         source=Source.ZOOPLA,
         source_id=source_id,
@@ -346,6 +377,7 @@ def parse_detail_page(
         floor_area_sqft=sqft,
         tenure=tenure,
         address=address,
+        coords=coords,
         title=title,
         summary=None,
         description=description,
@@ -770,16 +802,36 @@ def _parse_detail_description(tree: HTMLParser) -> str | None:
     return _clean_whitespace(node.text(separator="\n"))
 
 
-def _parse_detail_images(tree: HTMLParser) -> list[Image]:
+def _parse_detail_images(
+    tree: HTMLParser,
+    *,
+    floorplan_urls: set[str] | None = None,
+) -> list[Image]:
+    """Extract gallery + floorplan images as one deduplicated ``list[Image]``.
+
+    Floorplan-tagging rules:
+      1. Any URL present in ``floorplan_urls`` (derived from the Next.js
+         hydration payload's ``floorPlan`` block) is tagged ``caption="floorplan"``.
+      2. Any URL whose shape looks like a floorplan (``is_floorplan_url``) is
+         tagged as a fallback.
+    """
+    fp_set = floorplan_urls or set()
     images: list[Image] = []
     seen: set[str] = set()
-    for source in tree.css('picture source[srcset]'):
+    for source in tree.css("picture source[srcset]"):
         url = _first_srcset_url(source.attributes.get("srcset"))
-        if url and url not in seen:
-            seen.add(url)
-            images.append(Image(url=url))  # type: ignore[arg-type]
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        caption = FLOORPLAN_CAPTION if (url in fp_set or is_floorplan_url(url)) else None
+        images.append(Image(url=url, caption=caption))  # type: ignore[arg-type]
         if len(images) >= 30:
             break
+    for fp_url in fp_set:
+        if fp_url in seen:
+            continue
+        seen.add(fp_url)
+        images.append(Image(url=fp_url, caption=FLOORPLAN_CAPTION))  # type: ignore[arg-type]
     return images
 
 
@@ -1029,3 +1081,108 @@ def _derive_address_from_ld_name(name: str | None) -> str | None:
 
 def _build_raw_fields(**fields: str | int | None) -> dict[str, str]:
     return {k: str(v) for k, v in fields.items() if v not in (None, "")}
+
+
+# ── Next.js payload fallback ────────────────────────────────────────────────
+#
+# Zoopla is a Next.js 13+ app. The server renders each page, then streams an
+# RSC payload via repeated ``self.__next_f.push([N, "<chunk>"])`` script
+# blocks at the bottom of the document. That payload contains the canonical
+# listing data (price, address, photos, floorplans, coords). We use it as a
+# belt-and-braces fallback for CSS-based extraction: if a selector drifts
+# after a deploy, we can still recover the field from this stream.
+
+_NEXT_F_CHUNK_RE: Final = re.compile(
+    r"self\.__next_f\.push\(\[\d+\s*,\s*(\"(?:\\.|[^\"\\])*\")\]\)",
+    re.DOTALL,
+)
+_PRICE_ACTUAL_RE: Final = re.compile(r'"priceActual"\s*:\s*(\d+(?:\.\d+)?)')
+_PRICE_QUALIFIER_RE: Final = re.compile(r'"priceQualifier"\s*:\s*"([^"]+)"')
+_PRICE_LABEL_RE: Final = re.compile(r'"label"\s*:\s*"(£[^"]+)"')
+_DISPLAY_ADDRESS_RE: Final = re.compile(
+    r'"displayAddress"\s*:\s*"((?:\\.|[^"\\])+)"'
+)
+_IMAGE_FILENAME_RE: Final = re.compile(r'"filename"\s*:\s*"([a-f0-9]+\.jpe?g)"')
+_FLOORPLAN_BLOCK_RE: Final = re.compile(
+    r'"floorPlan"\s*:\s*\[(.*?)\]', re.DOTALL
+)
+_FLOORPLAN_ORIGINAL_RE: Final = re.compile(r'"original"\s*:\s*"(https?://[^"]+)"')
+_SOURCE_URL_RE: Final = re.compile(r'"listingUri"\s*:\s*"([^"]+)"')
+_ZOOPLA_CDN_PREFIX: Final = "https://lc.zoocdn.com"
+
+
+def _parse_zoopla_nextjs_payload(html: str) -> dict[str, object] | None:
+    """Best-effort scrape of Zoopla's Next.js RSC stream.
+
+    Returns a dict with optional keys ``price_raw``, ``amount_pence``,
+    ``address``, ``image_urls``, ``floorplan_urls``, ``source_url`` when the
+    corresponding field is discoverable in the hydration payload. Returns
+    ``None`` when no ``__next_f`` chunk is present at all.
+    """
+    if "__next_f" not in html:
+        return None
+
+    chunks: list[str] = []
+    for match in _NEXT_F_CHUNK_RE.finditer(html):
+        quoted = match.group(1)
+        try:
+            chunks.append(json.loads(quoted))
+        except json.JSONDecodeError:
+            continue
+    if not chunks:
+        return None
+    blob = "".join(chunks)
+
+    result: dict[str, object] = {}
+
+    price_match = _PRICE_ACTUAL_RE.search(blob)
+    if price_match:
+        try:
+            amount = float(price_match.group(1))
+            result["amount_pence"] = round(amount * 100)
+            result["price_raw"] = f"£{int(amount):,}"
+        except ValueError:
+            pass
+    if "price_raw" not in result:
+        label_match = _PRICE_LABEL_RE.search(blob)
+        if label_match:
+            result["price_raw"] = label_match.group(1)
+    qualifier_match = _PRICE_QUALIFIER_RE.search(blob)
+    if qualifier_match:
+        result["price_qualifier"] = qualifier_match.group(1)
+
+    addr_match = _DISPLAY_ADDRESS_RE.search(blob)
+    if addr_match:
+        try:
+            result["address"] = json.loads(f'"{addr_match.group(1)}"')
+        except json.JSONDecodeError:
+            result["address"] = addr_match.group(1)
+
+    url_match = _SOURCE_URL_RE.search(blob)
+    if url_match:
+        path = url_match.group(1)
+        if path.startswith("/"):
+            result["source_url"] = _ZOOPLA_ORIGIN + path
+
+    floorplan_urls: set[str] = set()
+    fp_block = _FLOORPLAN_BLOCK_RE.search(blob)
+    if fp_block:
+        for orig in _FLOORPLAN_ORIGINAL_RE.finditer(fp_block.group(1)):
+            floorplan_urls.add(orig.group(1))
+    if floorplan_urls:
+        result["floorplan_urls"] = floorplan_urls
+
+    image_urls: list[str] = []
+    seen_filenames: set[str] = set()
+    for m in _IMAGE_FILENAME_RE.finditer(blob):
+        filename = m.group(1)
+        if filename in seen_filenames:
+            continue
+        seen_filenames.add(filename)
+        image_urls.append(f"{_ZOOPLA_CDN_PREFIX}/{filename}")
+        if len(image_urls) >= 30:
+            break
+    if image_urls:
+        result["image_urls"] = image_urls
+
+    return result or None

@@ -9,8 +9,24 @@ from uk_property_apis.airquality import (
     Pollutant,
     StationProximity,
 )
-from uk_property_apis.bgs import BGSClient, GeohazardAssessment, HazardRating
-from uk_property_apis.coastal import CoastalErosionClient, ErosionZone, ShorelinePrediction
+from uk_property_apis.bgs import (
+    BGSClient,
+    ClimateProjection,
+    GeohazardAssessment,
+    LandslideEvent,
+    ShrinkSwellAssessment,
+    ShrinkSwellClass,
+    ShrinkSwellHorizon,
+)
+from uk_property_apis.coastal import (
+    ClimateUplift,
+    CoastalErosionClient,
+    ErosionZone,
+    HorizonYear,
+    ManagementScenario,
+    SMPPolicy,
+    ShorelinePrediction,
+)
 from uk_property_apis.elevation import ElevationClient, ElevationPoint
 from uk_property_apis.companies_house import (
     CompaniesHouseClient,
@@ -79,6 +95,8 @@ __all__ = [
     "BGSClient",
     "BGSRadonClient",
     "ClaimantCount",
+    "ClimateProjection",
+    "ClimateUplift",
     "CoastalErosionClient",
     "CompaniesHouseClient",
     "ContractsFinderClient",
@@ -92,7 +110,7 @@ __all__ = [
     "ErosionZone",
     "GeohazardAssessment",
     "GreenBeltArea",
-    "HazardRating",
+    "HorizonYear",
     "FTSClient",
     "FloodClient",
     "HTMLPlanningClient",
@@ -101,6 +119,8 @@ __all__ = [
     "LandlordGraph",
     "LandlordGraphEdge",
     "LandlordGraphNode",
+    "LandslideEvent",
+    "ManagementScenario",
     "NationalParkArea",
     "NomisClient",
     "NomisDataset",
@@ -115,8 +135,12 @@ __all__ = [
     "PostcodesClient",
     "RadonBand",
     "RadonPotential",
+    "SMPPolicy",
     "SSSIArea",
     "ShorelinePrediction",
+    "ShrinkSwellAssessment",
+    "ShrinkSwellClass",
+    "ShrinkSwellHorizon",
     "StationProximity",
     "Tender",
     "TenderClassification",

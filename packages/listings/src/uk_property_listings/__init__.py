@@ -37,6 +37,7 @@ from uk_property_listings.urls import (
     build_onthemarket_search_url,
     build_rightmove_search_url,
     build_zoopla_search_url,
+    build_zoopla_search_url_fallback,
 )
 
 __all__ = [
@@ -50,6 +51,7 @@ __all__ = [
     "build_onthemarket_search_url",
     "build_rightmove_search_url",
     "build_zoopla_search_url",
+    "build_zoopla_search_url_fallback",
     "crawl_onthemarket_search",
     "crawl_onthemarket_urls",
     "crawl_rightmove_search",

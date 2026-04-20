@@ -22,7 +22,22 @@ with open("page.html") as f:
     html = f.read()
 
 for listing in parse_search_results(html):
-    print(listing.url, listing.price, listing.address)
+    # Canonical `Listing` fields are side-agnostic.
+    # `source_url` is the detail-page URL; price lives in either
+    # `sale_price` or `rent_price` depending on `transaction_type`.
+    price = listing.sale_price or listing.rent_price
+    print(listing.source_url, price.raw if price else "POA", listing.address.raw)
+```
+
+If you need a detail page, use `parse_detail_page` — it returns a single
+`Listing` with full photos, description, coordinates, and features:
+
+```python
+from uk_property_scrapers.zoopla import parse_detail_page
+
+listing = parse_detail_page(html, source_url="https://www.zoopla.co.uk/for-sale/details/72228361/")
+assert listing is not None
+print(listing.coords, len(listing.image_urls))
 ```
 
 ## Architecture
@@ -33,6 +48,10 @@ a list of `Listing` models with no IO.
 
 Listings from all three sites are normalized to the same canonical `Listing` schema
 (`uk_property_scrapers.schema.Listing`) so downstream consumers work with one type.
+Key fields: `source` / `source_id` / `source_url`, `transaction_type`,
+`sale_price` / `rent_price` (only one populated at a time), `address`,
+`coords`, `bedrooms` / `bathrooms`, `image_urls` (with `caption="floorplan"`
+for floorplan variants), `features`, `agent`.
 
 ## Supported sources
 

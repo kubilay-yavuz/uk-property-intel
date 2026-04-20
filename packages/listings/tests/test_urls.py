@@ -7,6 +7,7 @@ from uk_property_listings import (
     build_onthemarket_search_url,
     build_rightmove_search_url,
     build_zoopla_search_url,
+    build_zoopla_search_url_fallback,
 )
 
 
@@ -47,6 +48,42 @@ class TestZooplaSearchUrl:
     def test_slugifies_multiword_location(self) -> None:
         url = build_zoopla_search_url(SearchQuery(location="Milton Keynes"))
         assert "/milton-keynes/" in url
+
+
+class TestZooplaSearchUrlFallback:
+    def test_drops_slug_keeps_q(self) -> None:
+        url = build_zoopla_search_url_fallback(SearchQuery(location="Tiny Hamlet"))
+        assert url.startswith("https://www.zoopla.co.uk/for-sale/?")
+        assert "q=Tiny%20Hamlet" in url
+        assert "/property/" not in url
+        assert "search_source=for-sale" in url
+
+    def test_rent_path(self) -> None:
+        url = build_zoopla_search_url_fallback(
+            SearchQuery(location="Somewhere", transaction="rent")
+        )
+        assert url.startswith("https://www.zoopla.co.uk/to-rent/?")
+        assert "search_source=to-rent" in url
+
+    def test_pagination(self) -> None:
+        query = SearchQuery(location="Somewhere")
+        assert "pn=" not in build_zoopla_search_url_fallback(query, page=1)
+        assert "pn=4" in build_zoopla_search_url_fallback(query, page=4)
+
+    def test_filters_are_preserved(self) -> None:
+        url = build_zoopla_search_url_fallback(
+            SearchQuery(
+                location="Somewhere",
+                min_price=250_000,
+                max_price=450_000,
+                min_beds=2,
+                max_beds=4,
+            )
+        )
+        assert "price_min=250000" in url
+        assert "price_max=450000" in url
+        assert "beds_min=2" in url
+        assert "beds_max=4" in url
 
 
 class TestRightmoveSearchUrl:

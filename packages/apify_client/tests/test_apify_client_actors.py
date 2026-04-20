@@ -31,10 +31,16 @@ class TestKnownActorSlugs:
             "uk-avm",
             "uk-climate-risk",
             "uk-location-intel",
+            "uk-listings-hydrate",
+            "uk-sold-prices",
         ]:
             assert slug in KNOWN_ACTOR_SLUGS, f"{slug!r} must be registered"
 
     def test_registry_is_ordered_deterministically(self) -> None:
+        # Ordered by actor number (A1..A14). A13 (uk-listings-hydrate) and
+        # A14 (uk-sold-prices) were added as the two newest actors and
+        # must stay at the tail so the apify-client list order matches the
+        # project-plan table.
         assert KNOWN_ACTOR_SLUGS == (
             "zoopla-listings",
             "rightmove-listings",
@@ -48,6 +54,8 @@ class TestKnownActorSlugs:
             "uk-avm",
             "uk-climate-risk",
             "uk-location-intel",
+            "uk-listings-hydrate",
+            "uk-sold-prices",
         )
 
 

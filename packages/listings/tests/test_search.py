@@ -64,6 +64,31 @@ class TestCrawlZooplaSearch:
             assert report.pages_fetched == 2
             assert route.call_count == 2
 
+    @respx.mock
+    async def test_unknown_slug_falls_back_to_slugless_url(self) -> None:
+        """Unknown location slugs 200 with an empty grid - we should retry
+        through the slugless ``?q=`` fallback URL before giving up."""
+        async with SimpleCrawler() as crawler:
+            html = _read("zoopla/search_cambridgeshire_2026-04.html")
+            slug_route = respx.get(
+                url__regex=r"https://www\.zoopla\.co\.uk/for-sale/property/.*"
+            ).mock(return_value=httpx.Response(200, html="<html><body></body></html>"))
+            fallback_route = respx.get(
+                url__regex=r"https://www\.zoopla\.co\.uk/for-sale/\?.*"
+            ).mock(return_value=httpx.Response(200, html=html))
+            report = await crawl_zoopla_search(
+                crawler,
+                SearchQuery(
+                    location="Unknown Hamlet",
+                    transaction="sale",
+                    max_pages=1,
+                ),
+            )
+            assert slug_route.called
+            assert fallback_route.called
+            assert report.pages_fetched == 2
+            assert len(report.listings) >= 10
+
 
 class TestCrawlRightmoveSearch:
     @respx.mock

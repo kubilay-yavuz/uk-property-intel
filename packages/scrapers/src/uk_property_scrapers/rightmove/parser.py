@@ -14,6 +14,11 @@ from typing import Final
 from pydantic import ValidationError
 from selectolax.parser import HTMLParser, Node
 
+from uk_property_scrapers._common import (
+    FLOORPLAN_CAPTION,
+    extract_uk_coords,
+    is_floorplan_url,
+)
 from uk_property_scrapers.schema import (
     Address,
     Agent,
@@ -273,8 +278,9 @@ def parse_detail_page(
 
     title = address_raw
     description = _parse_detail_description(tree)
-    image_urls = _parse_detail_property_images(tree)
+    image_urls = _parse_detail_property_images(tree, html)
     agent = _parse_detail_agent(tree)
+    coords = extract_uk_coords(html)
 
     address = Address(
         raw=address_raw,
@@ -314,6 +320,7 @@ def parse_detail_page(
         floor_area_sqft=sqft,
         tenure=tenure,
         address=address,
+        coords=coords,
         title=title,
         summary=None,
         description=description,
@@ -608,14 +615,38 @@ def _parse_detail_description(tree: HTMLParser) -> str | None:
     return None
 
 
-def _parse_detail_property_images(tree: HTMLParser) -> list[Image]:
+_RM_FLOORPLAN_SRC_RE: Final = re.compile(
+    r"https://media\.rightmove\.co\.uk/[^\"']*(?:FLP_|floorplan)[^\"']*",
+    re.IGNORECASE,
+)
+
+
+def _parse_detail_property_images(tree: HTMLParser, html: str) -> list[Image]:
+    """Collect photo + floorplan URLs off a Rightmove detail page.
+
+    Photos are fetched from ``<img src="…/property-photo…">`` nodes in the
+    DOM. Floorplans live inside a collapsed ``<details>`` panel that
+    Rightmove only expands client-side, so their URLs sit in the raw HTML as
+    inline JSON ``"floorplans":[{"url":"…FLP_00…"}]`` rather than in real
+    ``<img>`` tags. We scan the raw HTML for those URLs and tag them.
+    """
     images: list[Image] = []
     seen: set[str] = set()
     for img in tree.css('img[src*="property-photo"]'):
         src = img.attributes.get("src") or ""
         if src.startswith("http") and src not in seen:
             seen.add(src)
-            images.append(Image(url=src))  # type: ignore[arg-type]
+            caption = FLOORPLAN_CAPTION if is_floorplan_url(src) else None
+            images.append(Image(url=src, caption=caption))  # type: ignore[arg-type]
+        if len(images) >= 30:
+            break
+
+    for match in _RM_FLOORPLAN_SRC_RE.finditer(html):
+        fp_url = match.group(0)
+        if fp_url in seen:
+            continue
+        seen.add(fp_url)
+        images.append(Image(url=fp_url, caption=FLOORPLAN_CAPTION))  # type: ignore[arg-type]
         if len(images) >= 30:
             break
     return images

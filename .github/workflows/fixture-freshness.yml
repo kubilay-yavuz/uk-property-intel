@@ -1,0 +1,89 @@
+name: fixture-freshness
+
+# Scraper fixtures (Rightmove, Zoopla, OnTheMarket search/detail HTML and
+# the Allsop JSON payloads) are pinned against production shape. Portals
+# move their markup every few weeks without notice, so we run a cheap
+# cron here that fails loudly the moment any fixture drifts past the
+# quarterly target.
+#
+# This job NEVER downloads from the live portals — all three sit behind
+# Cloudflare and will return challenge pages to a headless CI runner.
+# The refresh itself is a manual, local-only workflow invoked with
+# `uv run scripts/refresh_fixtures.py`. What CI does:
+#
+# 1. Audit fixture filename stamps via `scripts/check_fixture_freshness.py`
+#    (zero-network, pure-Python). --strict flips warns into failures so
+#    the quarterly cadence is enforced.
+# 2. Re-run every scraper parser test against the committed fixtures via
+#    `scripts/refresh_fixtures.py --verify-only`. That's an internal drift
+#    canary: if we edit a parser in a way that breaks parsing of the real
+#    captured HTML, this fails even without a refresh.
+#
+# Schedule: 06:00 UTC on the 1st of each month. The strict freshness
+# audit will tolerate ~12 weeks (the `WARN_AFTER_DAYS` threshold) before
+# yelling, so a month-granular schedule gives two warnings before the
+# hard-fail band kicks in at 26 weeks.
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "packages/scrapers/tests/fixtures/**"
+      - "scripts/check_fixture_freshness.py"
+      - "scripts/refresh_fixtures.py"
+      - ".github/workflows/fixture-freshness.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "packages/scrapers/tests/fixtures/**"
+      - "scripts/check_fixture_freshness.py"
+      - "scripts/refresh_fixtures.py"
+      - ".github/workflows/fixture-freshness.yml"
+
+concurrency:
+  group: fixture-freshness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: freshness audit + parser canary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout uk-property-intel
+        uses: actions/checkout@v4
+
+      - name: Install uv (pinned)
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            **/pyproject.toml
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: uv sync --all-packages
+        run: uv sync --all-packages --frozen
+
+      # Plain (non-strict) audit first - prints the human table so the
+      # GitHub log is informative even when strict fails below.
+      - name: Fixture freshness audit (informational)
+        run: uv run python scripts/check_fixture_freshness.py
+
+      # Strict audit: fails if anything is >= 92 days old or undated.
+      # Scheduled runs and manual triggers enforce this; PR runs don't,
+      # so a PR that only touches code (not fixtures) can still land.
+      - name: Fixture freshness audit (strict, enforces quarterly cadence)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: uv run python scripts/check_fixture_freshness.py --strict
+
+      # Parser canary: runs every scraper test against the committed
+      # fixtures. Cheap, deterministic, and catches "we changed the
+      # parser but didn't bump the fixtures" drift inside the same
+      # commit that caused it.
+      - name: Parser canary (scraper tests against committed fixtures)
+        run: uv run python scripts/refresh_fixtures.py --verify-only
