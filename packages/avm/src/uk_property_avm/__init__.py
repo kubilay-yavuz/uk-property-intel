@@ -62,6 +62,12 @@ from uk_property_avm.quantile import (
     QuantileHedonicModel,
     estimate_value_quantile_hedonic,
 )
+from uk_property_avm.yields import (
+    RentSource,
+    YieldBreakdown,
+    YieldInputs,
+    compute_rental_yield,
+)
 
 __version__ = "0.1.0"
 
@@ -86,14 +92,18 @@ __all__ = [
     "PropertyType",
     "QuantileHedonicModel",
     "RegressorFactory",
+    "RentSource",
     "SklearnQuantileRegressor",
     "Station",
     "StationDataset",
     "ValuationEstimate",
+    "YieldBreakdown",
+    "YieldInputs",
     "__version__",
     "adjust_comparable_prices",
     "adjust_enriched_prices",
     "comparables_from_ppd",
+    "compute_rental_yield",
     "default_regressor_factory",
     "enrich_comparables",
     "estimate_value",

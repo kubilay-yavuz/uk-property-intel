@@ -119,8 +119,9 @@ class IamsoldRegister:
         available_only: bool | None = None,
         max_pages: int | None = None,
         page_size: int = 100,
+        include_gallery: bool = False,
     ) -> AuctionFetchResult:
-        del summary, available_only, page_size
+        del summary, available_only, page_size, include_gallery
 
         list_url = f"{_BASE_URL}{_LIST_PATH}"
         meta = iamsold_parser.build_synthetic_auction_meta(list_url=list_url)

@@ -30,7 +30,7 @@ client.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Final, Literal
 
@@ -48,6 +48,7 @@ _UPCOMING_PATH: Final = "api/auctions/upcoming"
 _CURRENT_PATH: Final = "api/auctions/current"
 _AUCTION_PATH: Final = "api/auctions"
 _SEARCH_PATH: Final = "api/search"
+_LOT_DETAIL_PATH: Final = "api/lot/reference"
 
 _CACHE_BUSTER: Final = {"react": ""}
 """Every browser request carries ``?react`` — forward it so the CDN
@@ -190,6 +191,30 @@ class AllsopClient(BaseAPIClient):
         path = f"{_AUCTION_PATH}/{auction_id}"
         return await self._get(path, params=_CACHE_BUSTER)
 
+    async def get_lot_detail(self, reference: str) -> dict[str, Any]:
+        """Fetch the full envelope for a single lot.
+
+        ``reference`` is the catalogue reference as it appears in the
+        lot URL (lowercase, hyphen-separated) — e.g. ``"r260430-098"``
+        for the ``R260430 098`` lot. Callers that have the raw feed
+        reference (``"R260430 098"``) should normalise it first with
+        :func:`_normalise_lot_reference`, which mirrors the slugify
+        done on the lot-overview URL.
+
+        The response has a ~20-field top-level envelope with keys
+        like ``version``, ``images``, ``legal_documents``,
+        ``description``, ``auction``; the ``images`` array is the
+        one callers typically want — feed it to
+        :func:`uk_property_scrapers.auctions.allsop.parse_lot_gallery`
+        for the full photo gallery.
+        """
+
+        slug = _normalise_lot_reference(reference)
+        if not slug:
+            raise ValueError("reference must be a non-empty string")
+        path = f"{_LOT_DETAIL_PATH}/{slug}"
+        return await self._get(path, params=_CACHE_BUSTER)
+
     async def search_page(
         self,
         *,
@@ -320,6 +345,24 @@ def _int_or_none(value: Any) -> int | None:
     return None
 
 
+def _normalise_lot_reference(reference: str | None) -> str:
+    """Convert a raw catalogue reference into the URL-safe slug form.
+
+    ``reference`` is either the pre-normalised slug (``"r260430-098"``)
+    or the raw feed value (``"R260430 098"``). The lot-detail endpoint
+    accepts the slug form only — we lowercase and fold whitespace
+    into a single hyphen so both inputs collapse to the same shape.
+    """
+
+    if not isinstance(reference, str):
+        return ""
+    stripped = reference.strip().lower()
+    if not stripped:
+        return ""
+    parts = [chunk for chunk in stripped.split() if chunk]
+    return "-".join(parts)
+
+
 async def list_upcoming_auctions() -> UpcomingAuctions:
     """One-shot fetch of the upcoming-auctions feed.
 
@@ -404,6 +447,8 @@ class AllsopRegister:
         available_only: bool | None = None,
         max_pages: int | None = None,
         page_size: int = 500,
+        include_gallery: bool = False,
+        gallery_concurrency: int = 8,
     ) -> AuctionFetchResult:
         from uk_property_scrapers.auctions import allsop as allsop_parser
 
@@ -422,6 +467,10 @@ class AllsopRegister:
             {"data": {"results": list(raw_lots)}},
             auction_meta=auction_meta or None,
         )
+        if include_gallery and lots:
+            lots = await self._hydrate_lot_galleries(
+                lots, concurrency=gallery_concurrency
+            )
         return AuctionFetchResult(
             source=self.source,
             auction_id=auction_id,
@@ -429,6 +478,41 @@ class AllsopRegister:
             lots=lots,
             raw_envelope=auction_envelope,
         )
+
+    async def _hydrate_lot_galleries(
+        self,
+        lots: Sequence[Any],
+        *,
+        concurrency: int,
+    ) -> list[Any]:
+        """Replace each lot's single thumbnail with its full gallery.
+
+        One ``/api/lot/reference/<ref>`` call per lot — cheap JSON but
+        N+1 on a 300-lot catalogue, so we bound the concurrency here
+        rather than inline in ``fetch_auction``. Failures are silent:
+        when the detail call errors, we fall back to whatever thumbnail
+        :func:`parse_search_results` already populated.
+        """
+
+        from uk_property_scrapers.auctions import allsop as allsop_parser
+
+        sem = asyncio.Semaphore(max(1, concurrency))
+
+        async def _fetch_one(lot: Any) -> Any:
+            reference = (lot.raw_site_fields or {}).get("reference")
+            if not isinstance(reference, str) or not reference:
+                return lot
+            async with sem:
+                try:
+                    detail = await self._client.get_lot_detail(reference)
+                except Exception:
+                    return lot
+            gallery = allsop_parser.parse_lot_gallery(detail)
+            if not gallery:
+                return lot
+            return lot.model_copy(update={"image_urls": gallery})
+
+        return list(await asyncio.gather(*(_fetch_one(lot) for lot in lots)))
 
 
 __all__ = [

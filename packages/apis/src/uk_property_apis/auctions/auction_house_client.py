@@ -155,8 +155,9 @@ class AuctionHouseRegister:
         available_only: bool | None = None,
         max_pages: int | None = None,
         page_size: int = 100,
+        include_gallery: bool = False,
     ) -> AuctionFetchResult:
-        del available_only, max_pages, page_size
+        del available_only, max_pages, page_size, include_gallery
 
         resolved = summary or self._summary_cache.get(auction_id)
         if resolved is None:

@@ -297,3 +297,185 @@ class TestSearchLotsHelper:
 
         lots = await search_lots(size=3, max_pages=2)
         assert len(lots) == 3
+
+
+class TestGetLotDetail:
+    @respx.mock
+    async def test_builds_expected_url_from_reference(
+        self,
+    ) -> None:
+        route = respx.get(f"{_BASE}/api/lot/reference/r260430-098").mock(
+            return_value=httpx.Response(200, json={"images": []}),
+        )
+
+        async with AllsopClient() as client:
+            await client.get_lot_detail("r260430-098")
+
+        sent = route.calls.last.request
+        assert str(sent.url).startswith(
+            f"{_BASE}/api/lot/reference/r260430-098"
+        )
+        assert "react" in sent.url.params
+
+    @respx.mock
+    async def test_normalises_raw_reference_with_space(
+        self,
+    ) -> None:
+        route = respx.get(f"{_BASE}/api/lot/reference/r260430-098").mock(
+            return_value=httpx.Response(200, json={"images": []}),
+        )
+
+        async with AllsopClient() as client:
+            await client.get_lot_detail("R260430 098")
+
+        assert route.called
+
+    async def test_empty_reference_is_rejected(self) -> None:
+        async with AllsopClient() as client:
+            with pytest.raises(ValueError, match="reference"):
+                await client.get_lot_detail("   ")
+
+
+class TestRegisterGalleryHydration:
+    @respx.mock
+    async def test_include_gallery_fans_out_lot_detail_calls(
+        self,
+        auction_meta_payload: dict[str, Any],
+        search_page1_payload: dict[str, Any],
+    ) -> None:
+        from uk_property_apis.auctions import AllsopRegister
+
+        auction_id = "16fe8330-8a60-11f0-a081-0242ac110002"
+        respx.get(f"{_BASE}/api/auctions/{auction_id}").mock(
+            return_value=httpx.Response(200, json=auction_meta_payload),
+        )
+
+        def _search(request: httpx.Request) -> httpx.Response:
+            page = int(request.url.params.get("page", "1"))
+            if page == 1:
+                return httpx.Response(200, json=search_page1_payload)
+            return httpx.Response(
+                200, json={"data": {"results": [], "total": 3}}
+            )
+
+        respx.get(f"{_BASE}/api/search").mock(side_effect=_search)
+
+        def _detail(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "images": [
+                        {
+                            "sort_order": 0,
+                            "file_id": "cafe0001-aaaa-bbbb-cccc-000000000000",
+                            "type": "featured",
+                            "mime_type": "image/jpeg",
+                            "deleted": False,
+                        },
+                        {
+                            "sort_order": 1,
+                            "file_id": "cafe0002-aaaa-bbbb-cccc-000000000000",
+                            "type": "featured",
+                            "mime_type": "image/jpeg",
+                            "deleted": False,
+                        },
+                    ]
+                },
+            )
+
+        detail_route = respx.get(url__regex=rf"{_BASE}/api/lot/reference/.*").mock(
+            side_effect=_detail
+        )
+
+        async with AllsopRegister() as register:
+            result = await register.fetch_auction(
+                auction_id,
+                include_gallery=True,
+                gallery_concurrency=2,
+                page_size=3,
+                max_pages=2,
+            )
+
+        # Three lots in fixture page 1 → three lot-detail calls.
+        assert detail_route.call_count == 3
+        # Every lot's thumbnail replaced with the 2-image stub gallery.
+        for lot in result.lots:
+            assert len(lot.image_urls) == 2
+            assert "cafe0001" in str(lot.image_urls[0].url)
+
+    @respx.mock
+    async def test_gallery_failure_keeps_existing_thumbnail(
+        self,
+        auction_meta_payload: dict[str, Any],
+        search_page1_payload: dict[str, Any],
+    ) -> None:
+        from uk_property_apis.auctions import AllsopRegister
+
+        auction_id = "16fe8330-8a60-11f0-a081-0242ac110002"
+        respx.get(f"{_BASE}/api/auctions/{auction_id}").mock(
+            return_value=httpx.Response(200, json=auction_meta_payload),
+        )
+
+        def _search(request: httpx.Request) -> httpx.Response:
+            page = int(request.url.params.get("page", "1"))
+            if page == 1:
+                return httpx.Response(200, json=search_page1_payload)
+            return httpx.Response(
+                200, json={"data": {"results": [], "total": 3}}
+            )
+
+        respx.get(f"{_BASE}/api/search").mock(side_effect=_search)
+
+        respx.get(url__regex=rf"{_BASE}/api/lot/reference/.*").mock(
+            return_value=httpx.Response(500),
+        )
+
+        async with AllsopRegister() as register:
+            result = await register.fetch_auction(
+                auction_id,
+                include_gallery=True,
+                page_size=3,
+                max_pages=2,
+            )
+
+        # Detail failures swallowed; each lot keeps its single thumbnail
+        # (which the search fixture populates via featured_image_file_id).
+        for lot in result.lots:
+            assert len(lot.image_urls) == 1
+
+    @respx.mock
+    async def test_include_gallery_false_skips_detail_calls(
+        self,
+        auction_meta_payload: dict[str, Any],
+        search_page1_payload: dict[str, Any],
+    ) -> None:
+        from uk_property_apis.auctions import AllsopRegister
+
+        auction_id = "16fe8330-8a60-11f0-a081-0242ac110002"
+        respx.get(f"{_BASE}/api/auctions/{auction_id}").mock(
+            return_value=httpx.Response(200, json=auction_meta_payload),
+        )
+
+        def _search(request: httpx.Request) -> httpx.Response:
+            page = int(request.url.params.get("page", "1"))
+            if page == 1:
+                return httpx.Response(200, json=search_page1_payload)
+            return httpx.Response(
+                200, json={"data": {"results": [], "total": 3}}
+            )
+
+        respx.get(f"{_BASE}/api/search").mock(side_effect=_search)
+
+        detail_route = respx.get(url__regex=rf"{_BASE}/api/lot/reference/.*").mock(
+            return_value=httpx.Response(200, json={"images": []}),
+        )
+
+        async with AllsopRegister() as register:
+            await register.fetch_auction(
+                auction_id,
+                include_gallery=False,
+                page_size=3,
+                max_pages=2,
+            )
+
+        assert detail_route.call_count == 0

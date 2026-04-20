@@ -112,3 +112,13 @@ def allsop_range_payload() -> dict[str, Any]:
             encoding="utf-8"
         )
     )
+
+
+@pytest.fixture(scope="session")
+def allsop_lot_detail_payload() -> dict[str, Any]:
+    """Live Allsop /api/lot/reference/<ref> payload (lot r260430-098, April 2026)."""
+    return json.loads(
+        (FIXTURES_DIR / "auctions" / "allsop" / "lot_detail_2026-04.json").read_text(
+            encoding="utf-8"
+        )
+    )

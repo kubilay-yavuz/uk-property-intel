@@ -185,6 +185,60 @@ class TestRangeGuidePrice:
         assert guide.qualifier is PriceQualifier.GUIDE_PRICE
 
 
+# ── Lot detail gallery ──────────────────────────────────────────────────────
+
+
+class TestParseLotGallery:
+    def test_extracts_every_image_in_sort_order(
+        self, allsop_lot_detail_payload: dict[str, Any]
+    ) -> None:
+        gallery = allsop.parse_lot_gallery(allsop_lot_detail_payload)
+        # Fixture captured with 15 images (one floorplan + 14 photos).
+        assert len(gallery) == 15
+        # Sort order preserved — lead featured photo first.
+        assert "80b61b0a-212b-11f1-96dc" in str(gallery[0].url)
+        # Floorplan sits at sort_order=1 with caption=='floorplan'.
+        assert gallery[1].caption == "floorplan"
+        assert str(gallery[1].url).endswith(".png")
+
+    def test_skips_floorplan_when_requested(
+        self, allsop_lot_detail_payload: dict[str, Any]
+    ) -> None:
+        gallery = allsop.parse_lot_gallery(
+            allsop_lot_detail_payload, include_floorplans=False
+        )
+        assert len(gallery) == 14
+        assert all(img.caption != "floorplan" for img in gallery)
+
+    def test_handles_missing_images_field(self) -> None:
+        assert allsop.parse_lot_gallery({}) == []
+        assert allsop.parse_lot_gallery({"images": None}) == []
+        assert allsop.parse_lot_gallery({"images": "garbage"}) == []
+
+    def test_skips_deleted_and_empty_entries(self) -> None:
+        payload = {
+            "images": [
+                {"sort_order": 0, "file_id": "abc", "deleted": True, "type": "featured"},
+                {"sort_order": 1, "file_id": None, "type": "featured"},
+                {"sort_order": 2, "file_id": "", "type": "featured"},
+                {"sort_order": 3, "file_id": "valid123", "type": "featured", "mime_type": "image/jpeg"},
+                "not-a-dict",
+            ]
+        }
+        gallery = allsop.parse_lot_gallery(payload)
+        assert len(gallery) == 1
+        assert "valid123" in str(gallery[0].url)
+
+    def test_uses_png_extension_for_png_mime(self) -> None:
+        payload = {
+            "images": [
+                {"sort_order": 0, "file_id": "plan1", "type": "floorplan", "mime_type": "image/png"},
+            ]
+        }
+        gallery = allsop.parse_lot_gallery(payload)
+        assert str(gallery[0].url).endswith("plan1-712-400-auto--.png")
+
+
 # ── Auction metadata ────────────────────────────────────────────────────────
 
 

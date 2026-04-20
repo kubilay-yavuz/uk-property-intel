@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+from uk_property_apis.airquality import (
+    AirQualityReading,
+    AirQualityStation,
+    DefraAirQualityClient,
+    Pollutant,
+    StationProximity,
+)
 from uk_property_apis.bgs import BGSClient, GeohazardAssessment, HazardRating
 from uk_property_apis.coastal import CoastalErosionClient, ErosionZone, ShorelinePrediction
+from uk_property_apis.elevation import ElevationClient, ElevationPoint
 from uk_property_apis.companies_house import (
     CompaniesHouseClient,
     LandlordGraph,
@@ -44,6 +52,7 @@ from uk_property_apis.ons import ONSClient
 from uk_property_apis.planning import PlanningClient
 from uk_property_apis.police import PoliceClient
 from uk_property_apis.postcodes import PostcodesClient
+from uk_property_apis.radon import BGSRadonClient, RadonBand, RadonPotential
 from uk_property_apis.tenders import (
     ContractsFinderClient,
     FTSClient,
@@ -62,17 +71,23 @@ __version__ = "0.1.0"
 
 __all__ = [
     "AONBArea",
+    "AirQualityReading",
+    "AirQualityStation",
     "AncientWoodlandArea",
     "ApplicationDetail",
     "ArcGISPlanningClient",
     "BGSClient",
+    "BGSRadonClient",
     "ClaimantCount",
     "CoastalErosionClient",
     "CompaniesHouseClient",
     "ContractsFinderClient",
     "CouncilConfig",
+    "DefraAirQualityClient",
     "Designations",
     "EPCClient",
+    "ElevationClient",
+    "ElevationPoint",
     "EmploymentStats",
     "ErosionZone",
     "GeohazardAssessment",
@@ -95,10 +110,14 @@ __all__ = [
     "PlanningApplication",
     "PlanningClient",
     "PoliceClient",
+    "Pollutant",
     "PopulationBreakdown",
     "PostcodesClient",
+    "RadonBand",
+    "RadonPotential",
     "SSSIArea",
     "ShorelinePrediction",
+    "StationProximity",
     "Tender",
     "TenderClassification",
     "TenderLocation",

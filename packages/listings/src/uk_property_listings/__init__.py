@@ -10,6 +10,8 @@ Public API:
   crawler interface.
 * :func:`crawl_zoopla_search`, :func:`crawl_rightmove_search`,
   :func:`crawl_onthemarket_search` + :class:`CrawlReport` - pagination loops.
+* :func:`crawl_zoopla_urls`, :func:`crawl_rightmove_urls`,
+  :func:`crawl_onthemarket_urls` - URL-list mode that bypasses search.
 """
 
 from __future__ import annotations
@@ -17,8 +19,11 @@ from __future__ import annotations
 from uk_property_listings.search import (
     CrawlReport,
     crawl_onthemarket_search,
+    crawl_onthemarket_urls,
     crawl_rightmove_search,
+    crawl_rightmove_urls,
     crawl_zoopla_search,
+    crawl_zoopla_urls,
 )
 from uk_property_listings.simple_crawler import SimpleCrawler
 from uk_property_listings.types import (
@@ -46,6 +51,9 @@ __all__ = [
     "build_rightmove_search_url",
     "build_zoopla_search_url",
     "crawl_onthemarket_search",
+    "crawl_onthemarket_urls",
     "crawl_rightmove_search",
+    "crawl_rightmove_urls",
     "crawl_zoopla_search",
+    "crawl_zoopla_urls",
 ]

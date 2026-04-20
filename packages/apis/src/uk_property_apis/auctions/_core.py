@@ -97,6 +97,7 @@ class AuctionSourceRegister(Protocol):
         available_only: bool | None = None,
         max_pages: int | None = None,
         page_size: int = 100,
+        include_gallery: bool = False,
     ) -> AuctionFetchResult:
         """Fetch one auction's metadata + normalised lot list.
 
@@ -105,6 +106,12 @@ class AuctionSourceRegister(Protocol):
         some clients need to resolve the catalogue URL. When ``None``
         the client falls back to a best-effort lookup against its own
         discovery feed.
+
+        ``include_gallery`` is a per-register opt-in: when supported
+        (currently just Allsop), the register fans out a lot-detail
+        call per lot and replaces each lot's single-thumbnail
+        ``image_urls`` with the full photo gallery. Registers that
+        don't expose a cheap gallery endpoint ignore the flag.
         """
         ...
 

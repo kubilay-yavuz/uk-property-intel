@@ -162,8 +162,9 @@ class SavillsRegister:
         available_only: bool | None = None,
         max_pages: int | None = None,
         page_size: int = _CATALOGUE_QTY,
+        include_gallery: bool = False,
     ) -> AuctionFetchResult:
-        del available_only
+        del available_only, include_gallery
 
         resolved = summary or self._summary_cache.get(auction_id)
         if resolved is None:

@@ -51,6 +51,7 @@ class TestBuildTools:
             "search_zoopla",
             "search_rightmove",
             "search_onthemarket",
+            "get_listing_by_url",
             "lookup_postcode",
             "find_postcodes_for_place",
             "sold_prices_for_postcode",
@@ -104,6 +105,55 @@ class TestSearchTools:
             {"location": "Cambridge", "transaction": "buy-to-let", "max_pages": 1}
         )
         assert out["query"]["transaction"] == "sale"
+
+
+class TestGetListingByUrl:
+    """`get_listing_by_url` dispatches on host → correct scraper parser."""
+
+    @respx.mock
+    async def test_rightmove_detail_url(self) -> None:
+        html = _read("rightmove/detail_173261858_2026-04.html")
+        url = "https://www.rightmove.co.uk/properties/173261858"
+        respx.get(url).mock(return_value=httpx.Response(200, html=html))
+        tool = _tool_by_name("get_listing_by_url")
+        out = await tool.ainvoke({"url": url})
+        assert out["source"] == "rightmove"
+        assert out["url"].endswith("173261858")
+        assert out["listing"] is not None
+        assert out["listing"]["source"] == "rightmove"
+        assert out["listing"]["source_id"] == "173261858"
+
+    @respx.mock
+    async def test_zoopla_detail_url(self) -> None:
+        html = _read("zoopla/detail_72228361_2026-04.html")
+        url = "https://www.zoopla.co.uk/for-sale/details/72228361/"
+        respx.get(url).mock(return_value=httpx.Response(200, html=html))
+        tool = _tool_by_name("get_listing_by_url")
+        out = await tool.ainvoke({"url": url})
+        assert out["source"] == "zoopla"
+        assert out["listing"] is not None
+        assert out["listing"]["source"] == "zoopla"
+        assert out["listing"]["source_id"] == "72228361"
+
+    @respx.mock
+    async def test_onthemarket_detail_url(self) -> None:
+        html = _read("onthemarket/detail_18999957_2026-04.html")
+        url = "https://www.onthemarket.com/details/18999957/"
+        respx.get(url).mock(return_value=httpx.Response(200, html=html))
+        tool = _tool_by_name("get_listing_by_url")
+        out = await tool.ainvoke({"url": url})
+        assert out["source"] == "onthemarket"
+        assert out["listing"] is not None
+        assert out["listing"]["source"] == "onthemarket"
+        assert out["listing"]["source_id"] == "18999957"
+
+    async def test_unsupported_host_rejected_before_network(self) -> None:
+        # No respx.mock decorator — any accidental HTTP call here would
+        # raise ConnectError, which would mask the ValueError we want to
+        # see. The tool must reject the URL purely from its hostname.
+        tool = _tool_by_name("get_listing_by_url")
+        with pytest.raises(ValueError, match="Unsupported portal"):
+            await tool.ainvoke({"url": "https://www.primelocation.com/for-sale/details/123/"})
 
 
 class TestPostcodeTool:

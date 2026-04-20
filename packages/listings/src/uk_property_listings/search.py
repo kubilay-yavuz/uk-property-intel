@@ -230,3 +230,132 @@ def _is_populated(value: object) -> bool:
 
 def _txn(kind: TransactionKind) -> TransactionType:
     return TransactionType.SALE if kind == "sale" else TransactionType.RENT
+
+
+async def crawl_zoopla_urls(
+    crawler: CrawlerProtocol,
+    urls: list[str],
+    *,
+    transaction: TransactionKind = "sale",
+    concurrency: int = 2,
+) -> CrawlReport:
+    """Fetch + parse a batch of Zoopla detail URLs without a search step.
+
+    Use this when the caller already has a set of specific listing
+    URLs (e.g. an agent's portfolio or an audit of previously-seen
+    listings). Each URL is fetched through the crawler, parsed with
+    :func:`uk_property_scrapers.zoopla.parse_detail_page`, and emitted
+    in the returned :class:`CrawlReport`.
+    """
+
+    return await _crawl_urls(
+        crawler=crawler,
+        urls=urls,
+        source=Source.ZOOPLA,
+        parse_detail=lambda html, url: zp.parse_detail_page(
+            html, source_url=url, transaction_type=_txn(transaction)
+        ),
+        concurrency=concurrency,
+    )
+
+
+async def crawl_rightmove_urls(
+    crawler: CrawlerProtocol,
+    urls: list[str],
+    *,
+    transaction: TransactionKind = "sale",
+    concurrency: int = 2,
+) -> CrawlReport:
+    """Fetch + parse a batch of Rightmove detail URLs without a search step."""
+
+    return await _crawl_urls(
+        crawler=crawler,
+        urls=urls,
+        source=Source.RIGHTMOVE,
+        parse_detail=lambda html, url: rm.parse_detail_page(
+            html, source_url=url, transaction_type=_txn(transaction)
+        ),
+        concurrency=concurrency,
+    )
+
+
+async def crawl_onthemarket_urls(
+    crawler: CrawlerProtocol,
+    urls: list[str],
+    *,
+    transaction: TransactionKind = "sale",
+    concurrency: int = 2,
+) -> CrawlReport:
+    """Fetch + parse a batch of OnTheMarket detail URLs without a search step."""
+
+    return await _crawl_urls(
+        crawler=crawler,
+        urls=urls,
+        source=Source.ONTHEMARKET,
+        parse_detail=lambda html, url: otm.parse_detail_page(
+            html, source_url=url, transaction_type=_txn(transaction)
+        ),
+        concurrency=concurrency,
+    )
+
+
+async def _crawl_urls(
+    *,
+    crawler: CrawlerProtocol,
+    urls: list[str],
+    source: Source,
+    parse_detail,
+    concurrency: int,
+) -> CrawlReport:
+    """Fetch + parse each URL, returning one :class:`CrawlReport`.
+
+    Duplicates (after casefolded normalisation) are collapsed before
+    fetching. Failures land in the report's ``errors`` list so callers
+    can aggregate them uniformly with the search-mode errors.
+    """
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for raw_url in urls:
+        if not raw_url:
+            continue
+        key = raw_url.strip().casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(raw_url.strip())
+
+    listings: dict[str, Listing] = {}
+    errors: list[str] = []
+    detail_pages_fetched = 0
+    sem = asyncio.Semaphore(max(1, concurrency))
+
+    async def fetch_one(url: str) -> None:
+        nonlocal detail_pages_fetched
+        async with sem:
+            try:
+                result = await crawler.fetch(url)
+            except FetcherError as exc:
+                errors.append(f"detail {url}: {exc}")
+                return
+            detail_pages_fetched += 1
+            try:
+                parsed = parse_detail(result.html, result.final_url)
+            except Exception as exc:
+                errors.append(f"parse detail {url}: {exc}")
+                return
+            if parsed is None:
+                errors.append(f"parse detail {url}: parser returned None")
+                return
+            key = parsed.source_id or result.final_url
+            listings[key] = parsed
+
+    await asyncio.gather(*(fetch_one(u) for u in deduped))
+
+    return CrawlReport(
+        source=source,
+        pages_fetched=0,
+        detail_pages_fetched=detail_pages_fetched,
+        listings=list(listings.values()),
+        errors=errors,
+    )

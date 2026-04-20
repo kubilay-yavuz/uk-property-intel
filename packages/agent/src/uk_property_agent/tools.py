@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
+from urllib.parse import urlparse
 
 from langchain_core.tools import StructuredTool
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
@@ -210,6 +211,35 @@ class FindPostcodesForPlaceArgs(BaseModel):
         le=10,
         description="Maximum place matches to return (ordered by OS ranking).",
     )
+
+
+class GetListingByUrlArgs(BaseModel):
+    """Input for :func:`get_listing_by_url`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(
+        ...,
+        min_length=10,
+        description=(
+            "Full URL of a single-property detail page on Rightmove, Zoopla, "
+            "or OnTheMarket. The host is auto-detected and dispatched to "
+            "the matching parser. Must be a detail page — search-results "
+            "URLs will return a null listing (use `search_rightmove` / "
+            "`search_zoopla` / `search_onthemarket` for search)."
+        ),
+    )
+
+
+_PORTAL_HOST_KEYWORDS: dict[str, str] = {
+    "rightmove": "rightmove",
+    "zoopla": "zoopla",
+    "onthemarket": "onthemarket",
+}
+"""Host-substring → portal slug. Used by :func:`get_listing_by_url` to
+pick the right :mod:`uk_property_scrapers` parser from the URL's host
+without hard-coding every TLD variant ('co.uk', '.com').
+"""
 
 
 class LatLngArgs(BaseModel):
@@ -585,6 +615,67 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
             coroutine=_run_search_tool(
                 ctx, crawl_fn=crawl_onthemarket_search, source="onthemarket"
             ),
+        )
+    )
+
+    async def _get_listing_by_url(url: str) -> dict[str, Any]:
+        # Lazy imports keep the scraper stack out of module load time for
+        # consumers that never touch listings (tests, AVM-only callers).
+        from uk_property_scrapers import onthemarket as _otm_scraper
+        from uk_property_scrapers import rightmove as _rm_scraper
+        from uk_property_scrapers import zoopla as _zp_scraper
+
+        host = (urlparse(url).hostname or "").lower()
+        portal: str | None = None
+        for keyword, slug in _PORTAL_HOST_KEYWORDS.items():
+            if keyword in host:
+                portal = slug
+                break
+        if portal is None:
+            raise ValueError(
+                f"Unsupported portal for URL {url!r}. Supported hosts contain "
+                "'rightmove', 'zoopla', or 'onthemarket'. If the user pasted a "
+                "search-results URL or a different portal, fall back to "
+                "`search_rightmove` / `search_zoopla` / `search_onthemarket`."
+            )
+
+        parser = {
+            "rightmove": _rm_scraper.parse_detail_page,
+            "zoopla": _zp_scraper.parse_detail_page,
+            "onthemarket": _otm_scraper.parse_detail_page,
+        }[portal]
+
+        async with ctx.crawler_factory() as crawler:
+            result = await crawler.fetch(url)
+
+        final_url = getattr(result, "final_url", None) or url
+        listing = parser(result.html, source_url=final_url)
+        return {
+            "source": portal,
+            "url": final_url,
+            "listing": (
+                listing.model_dump(mode="json", exclude_none=True)
+                if listing is not None
+                else None
+            ),
+        }
+
+    tools.append(
+        StructuredTool.from_function(
+            name="get_listing_by_url",
+            description=(
+                "Fetch and parse a single property detail page from Rightmove, "
+                "Zoopla, or OnTheMarket into the canonical Listing schema "
+                "(price in pence, bedrooms, bathrooms, address, agent, "
+                "coordinates when available). The portal is auto-detected "
+                "from the URL host. Use this after a `search_*` tool when "
+                "the user wants details about one specific listing, or when "
+                "they paste a listing URL directly. Returns "
+                "`{source, url, listing}`; `listing` is null if the URL is a "
+                "search-results page or the page could not be parsed."
+            ),
+            args_schema=GetListingByUrlArgs,
+            coroutine=_get_listing_by_url,
         )
     )
 

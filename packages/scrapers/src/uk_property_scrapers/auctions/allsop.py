@@ -239,6 +239,65 @@ def parse_auction_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def parse_lot_gallery(
+    payload: dict[str, Any],
+    *,
+    include_floorplans: bool = True,
+) -> list[Image]:
+    """Extract the full photo gallery from ``/api/lot/reference/<ref>``.
+
+    ``payload`` is the already-deserialised JSON body returned by
+    :meth:`uk_property_apis.auctions.AllsopClient.get_lot_detail`. The
+    relevant field is a top-level ``"images"`` array where each entry
+    carries ``sort_order`` (catalogue display order), ``type``
+    (``"featured"`` for photos, ``"floorplan"`` for the schematic), a
+    ``file_id`` (the CDN object key), and an optional ``mime_type``.
+
+    We build public CDN URLs using the same pattern Allsop serves on
+    the lot-overview page (``712x400`` auto-crop, matching a typical
+    card view). ``include_floorplans`` lets callers drop the schematic
+    when they only want photos of the property itself.
+
+    Entries flagged ``deleted=True`` or missing a ``file_id`` are
+    skipped. URLs that fail Pydantic validation are silently dropped
+    rather than aborting the whole gallery.
+    """
+
+    raw = payload.get("images")
+    if not isinstance(raw, list):
+        return []
+
+    entries: list[tuple[int, Image]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        if item.get("deleted") is True:
+            continue
+        file_id = item.get("file_id")
+        if not isinstance(file_id, str) or not file_id.strip():
+            continue
+        image_type = (item.get("type") or "").strip().lower()
+        if image_type == "floorplan" and not include_floorplans:
+            continue
+        mime = (item.get("mime_type") or "").strip().lower()
+        extension = "png" if mime == "image/png" else "jpg"
+        url = f"{_ALLSOP_IMAGE_CDN}/{file_id.strip()}-712-400-auto--.{extension}"
+        try:
+            image = Image(
+                url=cast("HttpUrl", _URL_TYPE_ADAPTER.validate_python(url)),
+                caption=image_type or None,
+            )
+        except ValidationError:
+            continue
+        order = item.get("sort_order")
+        if not isinstance(order, (int, float)):
+            order = len(entries)
+        entries.append((int(order), image))
+
+    entries.sort(key=lambda pair: pair[0])
+    return [image for _, image in entries]
+
+
 # ── Field-level parsers (internal) ──────────────────────────────────────────
 
 
@@ -649,5 +708,6 @@ __all__ = [
     "SaleDay",
     "infer_auction_date_from_reference",
     "parse_auction_metadata",
+    "parse_lot_gallery",
     "parse_search_results",
 ]
