@@ -16,6 +16,7 @@ from uk_property_scrapers.schema import (
     ListingFeature,
     ListingType,
     PriceQualifier,
+    PropertyTimelineEventKind,
     PropertyType,
     RentPeriod,
     Source,
@@ -282,6 +283,72 @@ class TestParseDetailPage:
 
     def test_has_images(self, detail: Listing) -> None:
         assert len(detail.image_urls) >= 1
+
+    # ── Enrichment fields lifted from PAGE_MODEL ─────────────────────────
+
+    def test_first_listed_from_analytics(self, detail: Listing) -> None:
+        # analyticsProperty.added = "20260313" → 13 March 2026.
+        assert detail.first_listed_at is not None
+        assert detail.first_listed_at.year == 2026
+        assert detail.first_listed_at.month == 3
+        assert detail.first_listed_at.day == 13
+
+    def test_council_tax_band(self, detail: Listing) -> None:
+        assert detail.council_tax_band == "F"
+
+    def test_timeline_captures_reduction_and_listing(
+        self, detail: Listing
+    ) -> None:
+        kinds = [event.kind for event in detail.timeline]
+        assert PropertyTimelineEventKind.REDUCED in kinds
+        assert PropertyTimelineEventKind.LISTED in kinds
+        reductions = [
+            e
+            for e in detail.timeline
+            if e.kind == PropertyTimelineEventKind.REDUCED
+        ]
+        assert reductions, "expected at least one reduction"
+        first_reduction = reductions[0]
+        # "Reduced on 13/04/2026"
+        assert first_reduction.occurred_at is not None
+        assert first_reduction.occurred_at.year == 2026
+        assert first_reduction.occurred_at.month == 4
+        assert first_reduction.occurred_at.day == 13
+        assert first_reduction.price_pence == 55_000_000
+
+    def test_lease_from_page_model(self, detail: Listing) -> None:
+        assert detail.lease is not None
+        # Ground rent £450/year, service charge £3559/year in livingCosts.
+        assert detail.lease.ground_rent_pence_per_year == 450 * 100
+        assert detail.lease.service_charge_pence_per_year == 3559 * 100
+
+    def test_epc_from_key_features(self, detail: Listing) -> None:
+        assert detail.epc is not None
+        assert detail.epc.current == "B"
+
+    def test_agent_enriched_from_customer_block(self, detail: Listing) -> None:
+        agent = detail.agent
+        assert agent is not None
+        assert agent.name == "Hockeys, Cambridge"
+        assert agent.branch == "Cambridge"
+        assert agent.group_name == "Hockeys"
+        assert agent.phone == "01223 972878"
+        assert agent.source_id == "211166"
+        assert agent.address is not None
+        assert "Mill Road" in agent.address
+        assert agent.url is not None
+        assert "/estate-agents/agent/Hockeys/Cambridge-211166.html" in str(
+            agent.url
+        )
+
+    def test_material_information_bundle(self, detail: Listing) -> None:
+        mi = detail.material_information
+        assert mi is not None
+        assert mi.council_tax_band == "F"
+        assert mi.tenure == Tenure.LEASEHOLD
+        assert mi.epc is not None
+        assert mi.lease is not None
+        assert mi.parking_raw == "Yes"
 
 
 class TestRobustness:

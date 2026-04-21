@@ -84,6 +84,40 @@ def onthemarket_detail_html() -> str:
     )
 
 
+# ── Agent-branch fixtures (April 2026) ──────────────────────────────────────
+#
+# One branch per portal. Rightmove uses branch ids as the authoritative
+# identifier (the company/town slug in the URL is decorative and stale
+# slugs redirect to whatever branch currently owns that id), so our
+# fixture file names reflect the branch the page actually resolves to
+# rather than the slug we requested. Captured via
+# ``scripts/capture_agent_fixtures.py``.
+
+
+@pytest.fixture(scope="session")
+def zoopla_agent_html() -> str:
+    """Zoopla branch page for Connells - Cambourne (branchId 1855)."""
+    return (
+        FIXTURES_DIR / "zoopla" / "agent_connells_cambourne_2026-04.html"
+    ).read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="session")
+def rightmove_agent_html() -> str:
+    """Rightmove branch page for Hockeys, Cambridge (branchId 211166)."""
+    return (
+        FIXTURES_DIR / "rightmove" / "agent_hockeys_cambridge_2026-04.html"
+    ).read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="session")
+def onthemarket_agent_html() -> str:
+    """OnTheMarket branch page for Abbotts - Cambridge (branchId 73259)."""
+    return (
+        FIXTURES_DIR / "onthemarket" / "agent_abbotts_cambridge_2026-04.html"
+    ).read_text(encoding="utf-8")
+
+
 @pytest.fixture(scope="session")
 def allsop_search_payload() -> dict[str, Any]:
     """Live Allsop /api/search payload (April 2026 residential catalogue, 5 lots)."""

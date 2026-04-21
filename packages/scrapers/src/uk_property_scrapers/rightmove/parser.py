@@ -4,12 +4,21 @@ Rightmove's React markup relies heavily on ``data-testid`` attributes, which are
 stable across releases. Human-readable class names are often CSS-module hashes;
 use ``[class*="PropertyInformation_propertyType"]``-style substring selectors
 where class-based targeting is unavoidable.
+
+Detail pages ship the entire React props tree as a single ``window.PAGE_MODEL``
+JS object containing ``propertyData`` + ``analyticsInfo`` + ``metadata``. It's
+the authoritative source for the enrichment fields (timeline, tenure /
+leasehold economics, council tax, broadband, EPC, agent branch + phone). We
+extract it with a balanced-brace scan rather than regex because the blob is
+large (~100 kB) and contains nested objects a regex can't follow.
 """
 
 from __future__ import annotations
 
+import json
 import re
-from typing import Final
+from datetime import date, datetime
+from typing import Any, Final
 
 from pydantic import ValidationError
 from selectolax.parser import HTMLParser, Node
@@ -22,12 +31,20 @@ from uk_property_scrapers._common import (
 from uk_property_scrapers.schema import (
     Address,
     Agent,
+    BroadbandSpeed,
+    BroadbandTier,
+    EnergyRating,
     Image,
+    LatLng,
+    LeaseTerms,
     Listing,
     ListingFeature,
     ListingType,
+    MaterialInformation,
     Price,
     PriceQualifier,
+    PropertyTimelineEvent,
+    PropertyTimelineEventKind,
     PropertyType,
     RentPeriod,
     RentPrice,
@@ -221,6 +238,9 @@ def parse_detail_page(
 ) -> Listing | None:
     """Parse a Rightmove property detail page into a single ``DETAIL`` listing."""
     tree = HTMLParser(html)
+    page_model = _extract_page_model(html) or {}
+    property_data = page_model.get("propertyData") if page_model else {}
+
     url = _detail_canonical_url(tree, source_url)
     if not url:
         return None
@@ -275,12 +295,74 @@ def parse_detail_page(
     tenure_el = tree.css_first('[data-testid="info-reel-tenure-button"]')
     tenure_text = _clean_whitespace(tenure_el.text(strip=True)) if tenure_el else ""
     tenure = _detect_tenure((tenure_text or "").lower())
+    if tenure == Tenure.UNKNOWN and page_model:
+        tenure = _rm_tenure_from_page_model(page_model)
 
     title = address_raw
     description = _parse_detail_description(tree)
     image_urls = _parse_detail_property_images(tree, html)
-    agent = _parse_detail_agent(tree)
-    coords = extract_uk_coords(html)
+    agent = (
+        _rm_agent_from_page_model(page_model) if page_model else None
+    ) or _parse_detail_agent(tree)
+    coords = extract_uk_coords(html) or (
+        _rm_coords_from_page_model(page_model) if page_model else None
+    )
+
+    # Prefer PAGE_MODEL for beds/baths when DOM extraction missed — the
+    # info-reel markup sometimes hides one of them behind client-side tabs.
+    if beds is None and isinstance(property_data, dict):
+        if (bd := property_data.get("bedrooms")) is not None:
+            with _swallow_type_error():
+                beds = int(bd)
+    if baths is None and isinstance(property_data, dict):
+        if (bt := property_data.get("bathrooms")) is not None:
+            with _swallow_type_error():
+                baths = int(bt)
+
+    # Enrichment fields — all optional.
+    timeline: list[PropertyTimelineEvent] = []
+    first_listed_at: date | None = None
+    lease: LeaseTerms | None = None
+    broadband: BroadbandSpeed | None = None
+    epc: EnergyRating | None = None
+    council_tax_band: str | None = None
+    material: MaterialInformation | None = None
+    key_feature_tokens: list[ListingFeature] = []
+
+    if page_model:
+        timeline = _rm_timeline_from_page_model(
+            page_model,
+            current_price_pence=amount_pence,
+        )
+        # First-listed timestamp is either the LISTED event's date or the
+        # ``analyticsProperty.added`` field we already used above.
+        listed_events = [
+            e for e in timeline if e.kind == PropertyTimelineEventKind.LISTED
+        ]
+        if listed_events and listed_events[0].occurred_at is not None:
+            first_listed_at = listed_events[0].occurred_at
+        else:
+            analytics = (
+                page_model.get("analyticsInfo") or {}
+            ).get("analyticsProperty") or {}
+            first_listed_at = _parse_rm_added_yyyymmdd(analytics.get("added"))
+
+        lease = _rm_lease_from_page_model(page_model)
+        broadband = _rm_broadband_from_page_model(page_model)
+        epc = _rm_epc_from_page_model(page_model)
+        council_tax_band = (
+            (property_data or {}).get("livingCosts") or {}
+        ).get("councilTaxBand")
+        if council_tax_band and not isinstance(council_tax_band, str):
+            council_tax_band = None
+        material = _rm_material_information(
+            page_model,
+            tenure=tenure,
+            lease=lease,
+            epc=epc,
+            broadband=broadband,
+        )
+        key_feature_tokens = _rm_key_features_as_listing_features(page_model)
 
     address = Address(
         raw=address_raw,
@@ -304,6 +386,9 @@ def parse_detail_page(
         ),
         url=url,
     )
+    for token in key_feature_tokens:
+        if token not in features:
+            features.append(token)
 
     return Listing(
         source=Source.RIGHTMOVE,
@@ -327,6 +412,13 @@ def parse_detail_page(
         features=features,
         image_urls=image_urls,
         agent=agent,
+        first_listed_at=first_listed_at,
+        lease=lease,
+        broadband=broadband,
+        epc=epc,
+        council_tax_band=council_tax_band,
+        timeline=timeline,
+        material_information=material,
         raw_site_fields={
             k: v
             for k, v in {
@@ -338,6 +430,21 @@ def parse_detail_page(
             if v
         },
     )
+
+
+class _swallow_type_error:
+    """Context manager that silently swallows ``TypeError`` / ``ValueError``.
+
+    Used when promoting PAGE_MODEL values that are typed as ``int`` but
+    occasionally arrive as stringified numbers or ``None`` — we'd rather
+    skip the coercion than crash the whole parse.
+    """
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        return exc_type in (TypeError, ValueError)
 
 
 # ── Search card discovery ───────────────────────────────────────────────────
@@ -847,3 +954,468 @@ def _absolutize(href: str) -> str:
 
 def _build_raw_fields(**fields: str | int | None) -> dict[str, str]:
     return {k: str(v) for k, v in fields.items() if v not in (None, "")}
+
+
+# ── PAGE_MODEL extraction ───────────────────────────────────────────────────
+#
+# Rightmove ships the full React props tree as a single ``window.PAGE_MODEL``
+# JS assignment. The blob is too large and too deeply nested for a regex, so
+# we find the assignment and then scan for the matching closing brace byte by
+# byte (string-aware so escaped quotes don't fool us). Roughly 100 kB per page
+# but parses in a few hundred microseconds.
+
+_PAGE_MODEL_RE: Final = re.compile(r"window\.PAGE_MODEL\s*=\s*")
+
+
+def _extract_page_model(html: str) -> dict[str, Any] | None:
+    """Pull ``window.PAGE_MODEL`` out of a detail page and ``json.loads`` it.
+
+    Returns ``None`` when the blob is missing or malformed so callers can
+    fall back to DOM-only parsing. Silently swallows JSON errors — a broken
+    payload shouldn't nuke the rest of the detail extract.
+    """
+    match = _PAGE_MODEL_RE.search(html)
+    if match is None:
+        return None
+    start = match.end()
+    length = len(html)
+    depth = 0
+    in_str = False
+    esc = False
+    i = start
+    while i < length:
+        ch = html[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(html[start : i + 1])
+                    except json.JSONDecodeError:
+                        return None
+        i += 1
+    return None
+
+
+# ── Rightmove PAGE_MODEL → Listing field helpers ────────────────────────────
+
+
+_RM_REDUCED_ON_RE: Final = re.compile(
+    r"reduced on\s+(\d{1,2}/\d{1,2}/\d{2,4})", re.IGNORECASE
+)
+_RM_ADDED_ON_RE: Final = re.compile(
+    r"(?:added|marketed|new instruction)\s+on\s+(\d{1,2}/\d{1,2}/\d{2,4})",
+    re.IGNORECASE,
+)
+_RM_SOLD_STC_RE: Final = re.compile(
+    r"sold\s+stc(?:\s+on\s+(\d{1,2}/\d{1,2}/\d{2,4}))?", re.IGNORECASE
+)
+
+
+def _parse_rm_date(raw: str) -> date | None:
+    """Parse Rightmove's DD/MM/YYYY (or DD/MM/YY) date strings."""
+    for fmt in ("%d/%m/%Y", "%d/%m/%y"):
+        try:
+            return datetime.strptime(raw.strip(), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_rm_added_yyyymmdd(raw: str | None) -> date | None:
+    """Rightmove's ``analyticsProperty.added`` is a ``YYYYMMDD`` string."""
+    if not raw or len(raw) != 8 or not raw.isdigit():
+        return None
+    try:
+        return date(int(raw[0:4]), int(raw[4:6]), int(raw[6:8]))
+    except ValueError:
+        return None
+
+
+def _rm_timeline_from_page_model(
+    page_model: dict[str, Any],
+    *,
+    current_price_pence: int | None,
+) -> list[PropertyTimelineEvent]:
+    """Build a timeline from Rightmove's ``listingHistory`` + ``analyticsProperty.added``.
+
+    Rightmove exposes only one line of historical context per listing (the
+    ``listingUpdateReason``, e.g. ``"Reduced on 13/04/2026"``), plus the
+    ``added`` YYYYMMDD in analytics. We lift both into timeline events so
+    the canonical schema is uniform across portals.
+    """
+    events: list[PropertyTimelineEvent] = []
+    history = (page_model.get("propertyData") or {}).get("listingHistory") or {}
+    reason = history.get("listingUpdateReason")
+    if isinstance(reason, str) and reason.strip():
+        reason_text = reason.strip()
+        kind = PropertyTimelineEventKind.UNKNOWN
+        occurred_at: date | None = None
+        if m := _RM_REDUCED_ON_RE.search(reason_text):
+            kind = PropertyTimelineEventKind.REDUCED
+            occurred_at = _parse_rm_date(m.group(1))
+        elif m := _RM_SOLD_STC_RE.search(reason_text):
+            kind = PropertyTimelineEventKind.SOLD_STC
+            if m.group(1):
+                occurred_at = _parse_rm_date(m.group(1))
+        elif m := _RM_ADDED_ON_RE.search(reason_text):
+            kind = PropertyTimelineEventKind.LISTED
+            occurred_at = _parse_rm_date(m.group(1))
+
+        events.append(
+            PropertyTimelineEvent(
+                kind=kind,
+                occurred_at=occurred_at,
+                occurred_at_text=reason_text,
+                price_pence=current_price_pence,
+                raw=reason_text,
+            )
+        )
+
+    analytics = (
+        (page_model.get("analyticsInfo") or {}).get("analyticsProperty") or {}
+    )
+    added_date = _parse_rm_added_yyyymmdd(analytics.get("added"))
+    if added_date is not None:
+        # Only insert a synthetic "listed" event if we don't already have one;
+        # the ``listingUpdateReason`` often encodes the same date as a reduction
+        # but the ``added`` field is the canonical first-seen timestamp.
+        already_listed = any(
+            event.kind == PropertyTimelineEventKind.LISTED for event in events
+        )
+        if not already_listed:
+            events.append(
+                PropertyTimelineEvent(
+                    kind=PropertyTimelineEventKind.LISTED,
+                    occurred_at=added_date,
+                    occurred_at_text=added_date.strftime("%d/%m/%Y"),
+                    price_pence=None,
+                    raw=f"Added on {added_date.strftime('%d/%m/%Y')}",
+                )
+            )
+
+    return events
+
+
+def _rm_tenure_from_page_model(page_model: dict[str, Any]) -> Tenure:
+    """Read ``propertyData.tenure.tenureType`` → canonical :class:`Tenure`."""
+    tenure = ((page_model.get("propertyData") or {}).get("tenure") or {}).get(
+        "tenureType"
+    )
+    if not isinstance(tenure, str):
+        return Tenure.UNKNOWN
+    return _detect_tenure(tenure.lower())
+
+
+def _rm_lease_from_page_model(page_model: dict[str, Any]) -> LeaseTerms | None:
+    """Assemble :class:`LeaseTerms` from ``tenure`` + ``livingCosts`` blocks.
+
+    Rightmove splits the economics: ``yearsRemainingOnLease`` lives in
+    ``propertyData.tenure`` while ground rent / service charge land in
+    ``propertyData.livingCosts``. We fuse them into a single canonical object
+    only when at least one field is populated — a freehold listing where
+    everything is null returns ``None``.
+    """
+    data = page_model.get("propertyData") or {}
+    tenure = data.get("tenure") or {}
+    costs = data.get("livingCosts") or {}
+
+    years = tenure.get("yearsRemainingOnLease")
+    ground_rent = costs.get("annualGroundRent")
+    service_charge = costs.get("annualServiceCharge")
+    review_years = costs.get("groundRentReviewPeriodInYears")
+
+    if not any(v not in (None, 0) for v in (years, ground_rent, service_charge)):
+        return None
+
+    raw: dict[str, str] = {}
+    if isinstance(ground_rent, (int, float)):
+        raw["ground_rent"] = f"£{int(ground_rent):,} per annum"
+    if isinstance(service_charge, (int, float)):
+        raw["service_charge"] = f"£{int(service_charge):,} per annum"
+    if isinstance(review_years, (int, float)):
+        raw["ground_rent_review"] = f"Every {int(review_years)} years"
+
+    return LeaseTerms(
+        years_remaining=int(years) if isinstance(years, (int, float)) else None,
+        ground_rent_pence_per_year=int(ground_rent * 100)
+        if isinstance(ground_rent, (int, float))
+        else None,
+        service_charge_pence_per_year=int(service_charge * 100)
+        if isinstance(service_charge, (int, float))
+        else None,
+        ground_rent_review_period_years=int(review_years)
+        if isinstance(review_years, (int, float))
+        else None,
+        raw=raw,
+    )
+
+
+def _rm_epc_from_page_model(
+    page_model: dict[str, Any],
+) -> EnergyRating | None:
+    """Extract the EPC band from ``keyFeatures`` (e.g. ``"EPC B"``).
+
+    Rightmove doesn't ship a structured EPC band — just a PNG in
+    ``epcGraphs`` plus occasional free-text in ``keyFeatures``. Parsing the
+    text is lossy but gives us something actionable.
+    """
+    features = (page_model.get("propertyData") or {}).get("keyFeatures") or []
+    for feat in features:
+        if not isinstance(feat, str):
+            continue
+        m = re.search(r"\bepc\s*(?:rating)?[:\s]*([A-G])\b", feat, re.IGNORECASE)
+        if m:
+            band = m.group(1).upper()
+            return EnergyRating(current=band, raw=feat.strip())
+    return None
+
+
+def _rm_broadband_from_page_model(
+    page_model: dict[str, Any],
+) -> BroadbandSpeed | None:
+    """Extract broadband speed from features + keyFeatures.
+
+    Rightmove sometimes populates ``propertyData.features.broadband`` with
+    an explicit Mbps value; when empty, fall back to free-text in
+    ``keyFeatures`` (``"Superfast Broadband Available"``). Returns ``None``
+    when neither surface has data so we don't invent speeds we can't prove.
+    """
+    data = page_model.get("propertyData") or {}
+    feat_bb = (data.get("features") or {}).get("broadband") or []
+    for f in feat_bb:
+        if not isinstance(f, dict):
+            continue
+        display = f.get("displayText") or ""
+        alias = f.get("alias") or ""
+        if display or alias:
+            tier, tech, speed = _rm_broadband_tier(display)
+            return BroadbandSpeed(
+                tier=tier,
+                technology=tech,
+                max_download_mbps=speed,
+                raw=display or alias,
+            )
+
+    for feat in data.get("keyFeatures") or []:
+        if not isinstance(feat, str):
+            continue
+        lowered = feat.lower()
+        if "broadband" in lowered or "fibre" in lowered or "fttp" in lowered:
+            tier, tech, speed = _rm_broadband_tier(feat)
+            return BroadbandSpeed(
+                tier=tier,
+                technology=tech,
+                max_download_mbps=speed,
+                raw=feat.strip(),
+            )
+    return None
+
+
+_RM_BROADBAND_SPEED_RE: Final = re.compile(r"(\d+)\s*mbps", re.IGNORECASE)
+
+
+def _rm_broadband_tier(text: str) -> tuple[BroadbandTier, str | None, int | None]:
+    """Infer tier + technology + speed from a single free-text string."""
+    lowered = text.lower()
+    technology: str | None = None
+    if "fttp" in lowered:
+        technology = "FTTP"
+    elif "fttc" in lowered:
+        technology = "FTTC"
+    elif "cable" in lowered:
+        technology = "Cable"
+    elif "adsl" in lowered:
+        technology = "ADSL"
+    elif "fibre" in lowered or "fiber" in lowered:
+        technology = "Fibre"
+
+    speed: int | None = None
+    if m := _RM_BROADBAND_SPEED_RE.search(text):
+        try:
+            speed = int(m.group(1))
+        except ValueError:
+            speed = None
+
+    if speed is not None:
+        if speed >= 1000:
+            tier = BroadbandTier.GIGABIT
+        elif speed >= 300:
+            tier = BroadbandTier.ULTRAFAST
+        elif speed >= 30:
+            tier = BroadbandTier.SUPERFAST
+        else:
+            tier = BroadbandTier.BASIC
+    elif "ultrafast" in lowered or "fttp" in lowered:
+        tier = BroadbandTier.ULTRAFAST
+    elif "superfast" in lowered or "fibre" in lowered or "fttc" in lowered:
+        tier = BroadbandTier.SUPERFAST
+    elif "gigabit" in lowered:
+        tier = BroadbandTier.GIGABIT
+    else:
+        tier = BroadbandTier.UNKNOWN
+
+    return tier, technology, speed
+
+
+def _rm_material_information(
+    page_model: dict[str, Any],
+    *,
+    tenure: Tenure,
+    lease: LeaseTerms | None,
+    epc: EnergyRating | None,
+    broadband: BroadbandSpeed | None,
+) -> MaterialInformation | None:
+    """Consolidate Rightmove's scattered fields into one :class:`MaterialInformation`.
+
+    Rightmove is the most permissive of the three portals about *which*
+    fields are present; we only mint the model when at least one field is
+    non-empty so callers can rely on ``listing.material_information`` being
+    meaningful.
+    """
+    data = page_model.get("propertyData") or {}
+    costs = data.get("livingCosts") or {}
+    features = data.get("features") or {}
+
+    council_tax_band = costs.get("councilTaxBand") if isinstance(costs, dict) else None
+    parking_raw = _first_feature_label(features.get("parking"))
+    heating_raw = _first_feature_label(features.get("heating"))
+    electricity_raw = _first_feature_label(features.get("electricity"))
+    water_raw = _first_feature_label(features.get("water"))
+    sewerage_raw = _first_feature_label(features.get("sewerage"))
+
+    payload: dict[str, Any] = {}
+    if council_tax_band:
+        payload["council_tax_band"] = council_tax_band
+    if tenure != Tenure.UNKNOWN:
+        payload["tenure"] = tenure
+    if lease is not None:
+        payload["lease"] = lease
+    if epc is not None:
+        payload["epc"] = epc
+    if broadband is not None:
+        payload["broadband"] = broadband
+    if parking_raw:
+        payload["parking_raw"] = parking_raw
+    if heating_raw:
+        payload["heating_raw"] = heating_raw
+    if electricity_raw:
+        payload["electricity_raw"] = electricity_raw
+    if water_raw:
+        payload["water_raw"] = water_raw
+    if sewerage_raw:
+        payload["sewerage_raw"] = sewerage_raw
+
+    if not payload:
+        return None
+    return MaterialInformation(**payload)
+
+
+def _first_feature_label(entries: Any) -> str | None:
+    """Rightmove features are lists of ``{alias, displayText}`` dicts."""
+    if not isinstance(entries, list) or not entries:
+        return None
+    first = entries[0]
+    if not isinstance(first, dict):
+        return None
+    label = first.get("displayText") or first.get("alias")
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+    return None
+
+
+def _rm_agent_from_page_model(
+    page_model: dict[str, Any],
+) -> Agent | None:
+    """Promote the ``customer`` + ``contactInfo`` blocks into a canonical :class:`Agent`.
+
+    Rightmove is unusually generous here: we get branch id, branch name,
+    display address, logo URL, microsite URL, phone number, and brand
+    (``companyTradingName``) in one payload. This is what lets us dedupe
+    "Hockeys - Cambridge" across portals and pivot to ``get_agent_profile``
+    later without needing a second crawl.
+    """
+    data = page_model.get("propertyData") or {}
+    customer = data.get("customer") or {}
+    contact = data.get("contactInfo") or {}
+
+    name = customer.get("branchDisplayName") or customer.get("companyName")
+    branch = customer.get("branchName")
+    group_name = (
+        customer.get("companyTradingName") or customer.get("companyName") or None
+    )
+    branch_id = customer.get("branchId")
+    source_id = str(branch_id) if isinstance(branch_id, (int, str)) else None
+    address = customer.get("displayAddress") or None
+    if isinstance(address, str):
+        address = _clean_whitespace(address.replace("\r", " ").replace("\n", " "))
+
+    logo = customer.get("logoPath")
+    profile_url = customer.get("customerProfileUrl")
+    if isinstance(profile_url, str) and profile_url.startswith("/"):
+        url = _RIGHTMOVE_ORIGIN + profile_url
+    elif isinstance(profile_url, str) and profile_url.startswith("http"):
+        url = profile_url
+    else:
+        url = None
+
+    phone = None
+    tels = contact.get("telephoneNumbers") or {}
+    if isinstance(tels, dict):
+        phone = tels.get("localNumber") or tels.get("internationalNumber")
+
+    if not any((name, phone, source_id, url, logo)):
+        return None
+
+    return Agent(
+        name=name if isinstance(name, str) else None,
+        phone=phone if isinstance(phone, str) else None,
+        email=None,
+        branch=branch if isinstance(branch, str) else None,
+        address=address,
+        url=url if isinstance(url, str) else None,  # type: ignore[arg-type]
+        logo_url=logo if isinstance(logo, str) and logo.startswith("http") else None,  # type: ignore[arg-type]
+        source_id=source_id,
+        group_name=group_name if isinstance(group_name, str) else None,
+    )
+
+
+def _rm_coords_from_page_model(page_model: dict[str, Any]) -> LatLng | None:
+    """Use ``analyticsProperty.latitude/longitude`` when available."""
+    analytics = (
+        (page_model.get("analyticsInfo") or {}).get("analyticsProperty") or {}
+    )
+    lat = analytics.get("latitude")
+    lng = analytics.get("longitude")
+    if isinstance(lat, (int, float)) and isinstance(lng, (int, float)):
+        try:
+            return LatLng(lat=float(lat), lng=float(lng))
+        except ValidationError:
+            return None
+    return None
+
+
+def _rm_key_features_as_listing_features(
+    page_model: dict[str, Any],
+) -> list[ListingFeature]:
+    """Distil ``propertyData.keyFeatures`` bullets into :class:`ListingFeature`s.
+
+    Falls back silently when no bullets are present — caller will still
+    get the existing text-blob-based detection.
+    """
+    features = (page_model.get("propertyData") or {}).get("keyFeatures") or []
+    blob = " ".join(f for f in features if isinstance(f, str))
+    if not blob:
+        return []
+    return _detect_features(blob=blob, url=None)

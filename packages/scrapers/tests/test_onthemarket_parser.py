@@ -13,10 +13,13 @@ from uk_property_scrapers.onthemarket import (
     parse_search_results,
 )
 from uk_property_scrapers.schema import (
+    BroadbandTier,
     Listing,
     ListingFeature,
     ListingType,
+    MobileCoverageLevel,
     PriceQualifier,
+    PropertyTimelineEventKind,
     PropertyType,
     Source,
     Tenure,
@@ -260,6 +263,116 @@ class TestParseDetailPage:
         listing = parse_detail_page(onthemarket_detail_html)
         assert listing is not None
         assert listing.source_id == "18999957"
+
+    # ── Enrichment from ``initialReduxState.property`` ──────────────────────
+    #
+    # The fixture captures a Leasehold flat in Cambridge reduced from the
+    # original listing price. It exercises every Redux-sourced field the
+    # parser has to populate: keyInfo (tenure + lease economics + council
+    # tax band), broadband (numeric Mbps), mobileReception (4 carriers),
+    # epc, agent (branch id + group), location (lat/lng), and the
+    # "Reduced yesterday" label that drives the timeline.
+
+    def test_council_tax_band_from_keyinfo(self, detail: Listing) -> None:
+        assert detail.council_tax_band == "C"
+
+    def test_lease_terms_decoded(self, detail: Listing) -> None:
+        lease = detail.lease
+        assert lease is not None
+        assert lease.years_remaining == 115
+        # "£325 per annum" → 32500 pence/year.
+        assert lease.ground_rent_pence_per_year == 32_500
+        # "£3,039 per annum" → 303,900 pence/year.
+        assert lease.service_charge_pence_per_year == 303_900
+        # OTM's "review period: unconfirmed" label deliberately leaves the
+        # review period unset — we must not invent one.
+        assert lease.ground_rent_review_period_years is None
+        # Raw snippets are preserved verbatim for downstream display.
+        assert "£325 per annum" in lease.raw["ground_rent"]
+        assert "£3,039 per annum" in lease.raw["service_charge"]
+
+    def test_broadband_numeric_mbps(self, detail: Listing) -> None:
+        bb = detail.broadband
+        assert bb is not None
+        assert bb.tier == BroadbandTier.ULTRAFAST
+        assert bb.max_download_mbps == 1000
+        assert bb.technology == "Ultra Fast"
+        assert "1000Mbps" in bb.raw
+
+    def test_mobile_signal_per_carrier(self, detail: Listing) -> None:
+        signals = {s.carrier: s for s in detail.mobile_signal}
+        assert set(signals) == {"ee", "o2", "three", "vodafone"}
+        assert signals["vodafone"].voice == MobileCoverageLevel.ENHANCED
+        assert signals["vodafone"].data == MobileCoverageLevel.ENHANCED
+        for carrier in ("ee", "o2", "three"):
+            assert signals[carrier].voice == MobileCoverageLevel.LIKELY
+            assert signals[carrier].data == MobileCoverageLevel.LIKELY
+
+    def test_epc_rating_captured(self, detail: Listing) -> None:
+        epc = detail.epc
+        assert epc is not None
+        assert epc.current == "C"
+        assert "EPC C" in epc.raw
+
+    def test_coords_from_redux(self, detail: Listing) -> None:
+        assert detail.coords is not None
+        assert detail.coords.lat == pytest.approx(52.215429, rel=1e-5)
+        assert detail.coords.lng == pytest.approx(0.142272, rel=1e-5)
+
+    def test_agent_enriched_from_redux(self, detail: Listing) -> None:
+        agent = detail.agent
+        assert agent is not None
+        # OnTheMarket's display name is "Abbotts - Cambridge"; branch name
+        # should be the "Cambridge" suffix (or mirror ``addressline2``).
+        assert agent.name == "Abbotts - Cambridge"
+        assert agent.branch == "Cambridge"
+        assert agent.phone == "01223 784074"
+        # OTM's branch id is the numeric internal identifier.
+        assert agent.source_id == "73259"
+        # Group name lets us roll up "Abbotts", "Gascoigne-Pees", etc.
+        # under "Connells Group" for franchise analytics.
+        assert agent.group_name == "Connells Group"
+        # The branch URL must be absolute; OTM ships a relative "/agents/..."
+        assert agent.url is not None
+        assert "onthemarket.com" in str(agent.url)
+        assert "abbotts-cambridge" in str(agent.url)
+        # Address whitespace should be collapsed to spaces (the Redux blob
+        # ships it as "60 Regent Street\nCambridge\nCB2 1DP").
+        assert agent.address is not None
+        assert "60 Regent Street" in agent.address
+        assert "CB2 1DP" in agent.address
+
+    def test_timeline_reduced_label(self, detail: Listing) -> None:
+        # OTM only exposes a relative "Reduced yesterday" label — we emit a
+        # single REDUCED event with the current price and ``occurred_at=None``.
+        assert len(detail.timeline) == 1
+        event = detail.timeline[0]
+        assert event.kind == PropertyTimelineEventKind.REDUCED
+        assert event.occurred_at is None
+        assert event.occurred_at_text == "Reduced yesterday"
+        assert event.price_pence == 42_500_000
+
+    def test_material_information_bundles_disclosure(self, detail: Listing) -> None:
+        mi = detail.material_information
+        assert mi is not None
+        assert mi.council_tax_band == "C"
+        assert mi.tenure == Tenure.LEASEHOLD
+        assert mi.lease is not None
+        assert mi.epc is not None
+        assert mi.broadband is not None
+        # Mobile signal is a cross-portal enrichment; OTM is the only portal
+        # that currently exposes it. It should make it into the bundle.
+        assert len(mi.mobile_signal) == 4
+        # ``extra`` carries OTM-only signals (area stats) that don't have a
+        # first-class field on the base model.
+        assert mi.extra.get("avg_home_prices") == "£328,360"
+        assert mi.extra.get("crime_rating") == "Moderate"
+
+    def test_raw_site_fields_include_status_label(self, detail: Listing) -> None:
+        raw = detail.raw_site_fields
+        assert raw.get("dataLabelId") == "reduced"
+        assert raw.get("daysSinceAddedReduced") == "Reduced yesterday"
+        assert raw.get("premiumText") == "Featured"
 
 
 class TestRobustness:

@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import pytest
 from uk_property_scrapers.schema import (
+    BroadbandTier,
     Listing,
     ListingFeature,
     ListingType,
     PriceQualifier,
+    PropertyTimelineEventKind,
     PropertyType,
     RentPeriod,
     Source,
@@ -304,6 +306,67 @@ class TestParseDetailPage:
     def test_first_listed_at(self, detail: Listing) -> None:
         assert detail.first_listed_at is not None
         assert detail.first_listed_at.year >= 2020
+
+    def test_tenure_resolved_from_nts_payload(self, detail: Listing) -> None:
+        # Fixture listing is Freehold per the ntsInfo block — we must upgrade
+        # the tenure past UNKNOWN even when the DOM fallback misses it.
+        assert detail.tenure == Tenure.FREEHOLD
+
+    def test_council_tax_band(self, detail: Listing) -> None:
+        assert detail.council_tax_band == "F"
+
+    def test_epc(self, detail: Listing) -> None:
+        assert detail.epc is not None
+        assert detail.epc.current == "C"
+        assert "EPC Rating" in detail.epc.raw
+
+    def test_material_information_bundle(self, detail: Listing) -> None:
+        mi = detail.material_information
+        assert mi is not None
+        assert mi.council_tax_band == "F"
+        assert mi.tenure == Tenure.FREEHOLD
+        assert mi.epc is not None
+        # Material Info should surface ancillary NTS fields verbatim
+        assert mi.water_raw == "Mains"
+        assert mi.electricity_raw == "Mains"
+        assert mi.sewerage_raw == "Mains"
+
+    def test_broadband(self, detail: Listing) -> None:
+        assert detail.broadband is not None
+        # The fixture discloses FTTP technology but no numeric speed
+        assert detail.broadband.technology == "FTTP"
+        assert detail.broadband.tier == BroadbandTier.ULTRAFAST
+
+    def test_agent_enriched_from_contact_block(self, detail: Listing) -> None:
+        assert detail.agent is not None
+        assert detail.agent.name == "Connells - Cambourne"
+        assert detail.agent.branch == "Cambourne"
+        assert detail.agent.group_name == "Connells"
+        assert detail.agent.phone == "01954 716003"
+        assert detail.agent.source_id == "1855"
+        assert detail.agent.url is not None
+        assert "/find-agents/branch/" in str(detail.agent.url)
+
+    def test_timeline_has_expected_events(self, detail: Listing) -> None:
+        assert detail.timeline, "expected at least one timeline event"
+        kinds = [event.kind for event in detail.timeline]
+        assert PropertyTimelineEventKind.REDUCED in kinds
+        assert PropertyTimelineEventKind.LISTED in kinds
+
+    def test_timeline_price_change(self, detail: Listing) -> None:
+        reductions = [
+            event
+            for event in detail.timeline
+            if event.kind == PropertyTimelineEventKind.REDUCED
+        ]
+        assert reductions, "expected at least one reduction event"
+        first_reduction = reductions[0]
+        # Price at reduction: £600,000
+        assert first_reduction.price_pence == 60_000_000
+        # Change: -£50,000 (7.7%)
+        assert first_reduction.change_pence == -50_000_00
+        assert first_reduction.change_pct is not None
+        assert first_reduction.change_pct < 0
 
 
 # ── Edge cases / robustness ────────────────────────────────────────────────

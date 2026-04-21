@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Final
 
 from pydantic import ValidationError
@@ -36,12 +36,21 @@ from uk_property_scrapers._common import (
 from uk_property_scrapers.schema import (
     Address,
     Agent,
+    BroadbandSpeed,
+    BroadbandTier,
+    EnergyRating,
     Image,
+    LeaseTerms,
     Listing,
     ListingFeature,
     ListingType,
+    MaterialInformation,
+    MobileCoverageLevel,
+    MobileSignal,
     Price,
     PriceQualifier,
+    PropertyTimelineEvent,
+    PropertyTimelineEventKind,
     PropertyType,
     RentPeriod,
     RentPrice,
@@ -354,12 +363,41 @@ def parse_detail_page(
     )
 
     tenure = _parse_detail_tenure(tree)
-    agent = _parse_detail_agent(tree)
+    agent = _parse_detail_agent(tree, nextjs=nextjs)
     features = _parse_detail_features(tree)
     if features and rent_price is not None and ListingFeature.AUCTION in features:
         features.remove(ListingFeature.AUCTION)
 
     coords = extract_uk_coords(html)
+
+    # Detail-page enrichments — all optional, populated when the page exposes them.
+    nts_entries = (nextjs or {}).get("nts_entries") or {}
+    ad_targeting = (nextjs or {}).get("ad_targeting") or {}
+
+    timeline = _parse_detail_timeline(tree)
+    broadband = _nts_broadband(nts_entries)
+    mobile_signal_list = _nts_mobile_signal(nts_entries)
+    council_tax_band = _nts_council_tax_band(nts_entries)
+    epc = _parse_detail_epc(nextjs or {})
+    lease = _nts_lease(nts_entries)
+
+    # Upgrade tenure from ntsInfo/adTargeting when DOM detection found nothing.
+    if tenure == Tenure.UNKNOWN:
+        for candidate in (nts_entries.get("tenure"), ad_targeting.get("tenure")):
+            if isinstance(candidate, str):
+                tenure = _detect_tenure(candidate.lower())
+                if tenure != Tenure.UNKNOWN:
+                    break
+
+    material = _build_material_information(
+        nts_entries=nts_entries,
+        council_tax_band=council_tax_band,
+        tenure=tenure,
+        lease=lease,
+        epc=epc,
+        broadband=broadband,
+        mobile_signal=mobile_signal_list,
+    )
 
     return Listing(
         source=Source.ZOOPLA,
@@ -385,6 +423,13 @@ def parse_detail_page(
         image_urls=image_urls,
         agent=agent,
         first_listed_at=first_listed,
+        lease=lease,
+        broadband=broadband,
+        mobile_signal=mobile_signal_list,
+        epc=epc,
+        council_tax_band=council_tax_band,
+        timeline=timeline,
+        material_information=material,
         raw_site_fields={
             k: v
             for k, v in {
@@ -853,22 +898,85 @@ def _parse_detail_tenure(tree: HTMLParser) -> Tenure:
     return _detect_tenure(text)
 
 
-def _parse_detail_agent(tree: HTMLParser) -> Agent | None:
+def _parse_detail_agent(
+    tree: HTMLParser, *, nextjs: dict[str, object] | None = None
+) -> Agent | None:
+    """Extract the agent associated with a detail page.
+
+    Zoopla exposes a ``Contact agent`` sidebar whose React props are embedded
+    verbatim in the Next.js RSC stream: ``branchId``, ``name`` (e.g.
+    ``'Connells - Cambourne'``), ``number`` (phone), ``url.contact`` (the
+    enquiry endpoint) and ``url.listings`` (the branch page). When the RSC
+    payload is available we prefer it — it's the only place phone + branch id
+    are machine-readable. When it's missing we fall back to the image-alt
+    heuristic that already worked on search cards.
+    """
+    contact = (nextjs or {}).get("contact_agent") if nextjs else None
     logo = tree.css_first('img[class*="BranchSummary"][alt]') or tree.css_first(
         'img[class*="agent-logo"][alt]'
     )
-    if logo is None:
+
+    alt = (logo.attributes.get("alt") if logo is not None else None) or ""
+    logo_src = (logo.attributes.get("src") if logo is not None else None) or None
+
+    name: str | None = None
+    branch: str | None = None
+    phone: str | None = None
+    source_id: str | None = None
+    group_name: str | None = None
+    url: str | None = None
+
+    if isinstance(contact, dict):
+        raw_name = _coerce_str(contact.get("name"))
+        if raw_name:
+            if " - " in raw_name:
+                group_seg, branch_seg = (seg.strip() for seg in raw_name.split(" - ", 1))
+                group_name = group_seg or None
+                branch = branch_seg or None
+                name = raw_name
+            else:
+                name = raw_name
+        phone = _coerce_str(contact.get("number")) or None
+        branch_id = contact.get("branchId")
+        if isinstance(branch_id, (int, str)):
+            source_id = str(branch_id)
+        url_block = contact.get("url")
+        if isinstance(url_block, dict):
+            listings_path = _coerce_str(url_block.get("listings"))
+            if listings_path and listings_path.startswith("/"):
+                url = _ZOOPLA_ORIGIN + listings_path
+
+    # Fall back to adTargeting block for brand / branch id if still missing.
+    if nextjs and (source_id is None or group_name is None or name is None):
+        ad = (nextjs or {}).get("ad_targeting") or {}
+        if name is None:
+            name = _coerce_str(ad.get("branchName"))
+        if group_name is None:
+            group_name = _coerce_str(ad.get("brandName"))
+        if source_id is None and isinstance(ad.get("branchId"), (int, str)):
+            source_id = str(ad["branchId"])
+
+    # DOM alt-tag fallback for freshly-deployed Zoopla layouts.
+    if name is None and alt:
+        if " - " in alt:
+            alt_name, alt_branch = (seg.strip() for seg in alt.split(" - ", 1))
+            name = alt_name or None
+            if branch is None:
+                branch = alt_branch or None
+        else:
+            name = alt.strip() or None
+
+    if name is None and logo_src is None:
         return None
-    alt = logo.attributes.get("alt") or ""
-    src = logo.attributes.get("src") or None
-    if " - " in alt:
-        name, branch = (seg.strip() for seg in alt.split(" - ", 1))
-    else:
-        name, branch = (alt.strip() or None), None
+
     return Agent(
         name=name,
         branch=branch,
-        logo_url=src if src and src.startswith("http") else None,  # type: ignore[arg-type]
+        phone=phone,
+        url=url if url and url.startswith("http") else None,  # type: ignore[arg-type]
+        logo_url=logo_src if logo_src and logo_src.startswith("http") else None,  # type: ignore[arg-type]
+        source_id=source_id,
+        group_name=group_name,
     )
 
 
@@ -1185,4 +1293,591 @@ def _parse_zoopla_nextjs_payload(html: str) -> dict[str, object] | None:
     if image_urls:
         result["image_urls"] = image_urls
 
+    nts_entries = _extract_nts_entries(blob)
+    if nts_entries:
+        result["nts_entries"] = nts_entries
+
+    ad_targeting = _extract_ad_targeting(blob)
+    if ad_targeting:
+        result["ad_targeting"] = ad_targeting
+
+    contact_agent = _extract_contact_agent(blob)
+    if contact_agent:
+        result["contact_agent"] = contact_agent
+
+    epc_block = _extract_epc_block(blob)
+    if epc_block:
+        result["epc_block"] = epc_block
+
     return result or None
+
+
+# ── NTS / Material-Info helpers (built on the RSC blob) ─────────────────────
+#
+# Zoopla inlines its Material Information bundle as a JSON array of
+# ``{"title":..., "key":..., "value":...}`` objects. Keys we see in the wild:
+# tenure, council_tax_band, broadband, broadband_speed, mobile_coverage,
+# parking, restrictions, rights_and_easements, water, heating, electricity,
+# sewerage, and (for leasehold) ground_rent, service_charge, lease_length,
+# review_date. Values are almost always strings; occasionally numbers.
+_NTS_ENTRY_RE: Final = re.compile(
+    r'\{"title":"(?P<title>[^"]+)","(?:value"|key":")'
+    r'(?:[^"]+",")?'
+    r'(?P<prefix>key|value)":"(?P<prefix_value>[^"]*)",'
+    r'"(?P<suffix>value|key)":"(?P<suffix_value>[^"]*)"'
+)
+_NTS_SIMPLE_RE: Final = re.compile(
+    r'\{"title":"(?P<title>[^"]+)","value":"(?P<value>[^"]*)","key":"(?P<key>[^"]+)"'
+)
+_NTS_KEY_FIRST_RE: Final = re.compile(
+    r'\{"title":"(?P<title>[^"]+)","key":"(?P<key>[^"]+)","value":"(?P<value>[^"]*)"'
+)
+
+
+def _extract_nts_entries(blob: str) -> dict[str, str]:
+    """Pull all ``{"title":..., "key":..., "value":...}`` objects into a flat dict.
+
+    The two orderings (``value``-then-``key`` vs ``key``-then-``value``) both
+    occur in the same page — we try each regex and merge. Later entries win
+    so tenure in the adTargeting-adjacent bundle overrides an earlier generic
+    one. Values are kept as raw strings — callers normalize them.
+    """
+    entries: dict[str, str] = {}
+    for m in _NTS_SIMPLE_RE.finditer(blob):
+        key = m.group("key")
+        value = m.group("value")
+        if key and value and key not in entries:
+            entries[key] = value
+    for m in _NTS_KEY_FIRST_RE.finditer(blob):
+        key = m.group("key")
+        value = m.group("value")
+        if key and value and key not in entries:
+            entries[key] = value
+    return entries
+
+
+_AD_TARGETING_RE: Final = re.compile(
+    r'"adTargeting":\{[^{}]*"branchId":(?P<branch_id>\d+)[^{}]*?'
+    r'"branchName":"(?P<branch_name>[^"]+)"[^{}]*?'
+    r'"brandName":"(?P<brand_name>[^"]+)"[^{}]*?'
+    r'"companyId":(?P<company_id>\d+)[^{}]*?'
+    r'"groupId":(?P<group_id>\d+)[^{}]*?'
+    r'(?:"listingStatus":"(?P<listing_status>[^"]+)")?',
+    re.DOTALL,
+)
+
+
+def _extract_ad_targeting(blob: str) -> dict[str, object]:
+    """Mine the ``adTargeting`` block for branch metadata.
+
+    Zoopla renders this as analytics scaffolding, but it's the most complete
+    single source for branch id + brand + listing status. Falls back silently
+    if Zoopla changes the shape.
+    """
+    m = _AD_TARGETING_RE.search(blob)
+    if not m:
+        return {}
+    out: dict[str, object] = {
+        "branchId": int(m.group("branch_id")),
+        "branchName": m.group("branch_name"),
+        "brandName": m.group("brand_name"),
+        "companyId": int(m.group("company_id")),
+        "groupId": int(m.group("group_id")),
+    }
+    status = m.group("listing_status")
+    if status:
+        out["listingStatus"] = status
+    ten_match = re.search(r'"tenure":"([^"]+)"', blob[m.start() : m.end() + 200])
+    if ten_match:
+        out["tenure"] = ten_match.group(1)
+    return out
+
+
+_CONTACT_AGENT_ANCHOR_RE: Final = re.compile(
+    r'"aria-label":"Contact agent"',
+    re.DOTALL,
+)
+_CONTACT_BRANCH_ID_RE: Final = re.compile(r'"branchId":(?P<branch_id>\d+)')
+_CONTACT_GROUP_ID_RE: Final = re.compile(r'"groupId":(?P<group_id>\d+)')
+_CONTACT_LISTING_ID_RE: Final = re.compile(r'"listingId":"(?P<listing_id>\d+)"')
+# The outer branch name + phone only appear in the canonical order
+# ``"logo":{"src":"..."},"name":"...","number":"..."`` — nested ``ecommerce``
+# objects have their own ``name`` key but never a ``logo``-then-``name`` bridge.
+_CONTACT_LOGO_NAME_NUMBER_RE: Final = re.compile(
+    r'"logo":\{"src":"(?P<logo>[^"]+)"\},'
+    r'"name":"(?P<name>[^"]+)","number":"(?P<phone>[^"]+)"'
+)
+_CONTACT_URL_BLOCK_RE: Final = re.compile(
+    r'"url":\{"contact":"(?P<contact_url>[^"]+)","listings":"(?P<listings_url>[^"]+)"'
+)
+
+
+def _extract_contact_agent(blob: str) -> dict[str, object]:
+    """Pull branch id + name + phone + enquiry URL from the 'Contact agent' sidebar.
+
+    The sidebar's React props embed the actionable data we need for
+    ``send_inquiry`` later (branch id, enquiry URL path) as well as the
+    phone number that Zoopla doesn't expose anywhere in the DOM outside this
+    one block. We anchor on ``"aria-label":"Contact agent"`` and then extract
+    each field with its own narrow regex — the block contains nested objects
+    (``ecommerce``, ``text``) that break single "skip-over-anything" patterns.
+    """
+    anchor = _CONTACT_AGENT_ANCHOR_RE.search(blob)
+    if not anchor:
+        return {}
+    # The sidebar React tree sits within ~3kB of the anchor — keep a generous
+    # window but bounded so we don't bleed into adjacent modules.
+    section = blob[anchor.start() : anchor.start() + 3000]
+
+    result: dict[str, object] = {}
+    if m := _CONTACT_BRANCH_ID_RE.search(section):
+        result["branchId"] = int(m.group("branch_id"))
+    if m := _CONTACT_GROUP_ID_RE.search(section):
+        result["groupId"] = int(m.group("group_id"))
+    if m := _CONTACT_LISTING_ID_RE.search(section):
+        result["listingId"] = m.group("listing_id")
+    if m := _CONTACT_LOGO_NAME_NUMBER_RE.search(section):
+        result["logo"] = {"src": m.group("logo")}
+        result["name"] = m.group("name")
+        result["number"] = m.group("phone")
+    if m := _CONTACT_URL_BLOCK_RE.search(section):
+        result["url"] = {
+            "contact": m.group("contact_url"),
+            "listings": m.group("listings_url"),
+        }
+    # Anchor match alone isn't useful — require at least one identifying field.
+    if "branchId" not in result and "name" not in result:
+        return {}
+    return result
+
+
+_EPC_SUMMARY_RE: Final = re.compile(
+    r'"title":"EPC Rating","text":"EPC Rating:\s*(?P<band>[A-G])"'
+)
+
+
+def _extract_epc_block(blob: str) -> dict[str, str] | None:
+    m = _EPC_SUMMARY_RE.search(blob)
+    if not m:
+        return None
+    return {"current": m.group("band"), "raw": m.group(0)}
+
+
+# ── Detail-page structured helpers ──────────────────────────────────────────
+
+
+_TIMELINE_KIND_MAP: Final[dict[str, PropertyTimelineEventKind]] = {
+    "listed": PropertyTimelineEventKind.LISTED,
+    "relisted": PropertyTimelineEventKind.RELISTED,
+    "reduced": PropertyTimelineEventKind.REDUCED,
+    "increased": PropertyTimelineEventKind.INCREASED,
+    "under offer": PropertyTimelineEventKind.UNDER_OFFER,
+    "sold stc": PropertyTimelineEventKind.SOLD_STC,
+    "sold (stc)": PropertyTimelineEventKind.SOLD_STC,
+    "sold subject to contract": PropertyTimelineEventKind.SOLD_STC,
+    "sold": PropertyTimelineEventKind.SOLD,
+    "let agreed": PropertyTimelineEventKind.LET_AGREED,
+    "withdrawn": PropertyTimelineEventKind.WITHDRAWN,
+}
+
+_MONTH_NAMES: Final[dict[str, int]] = {
+    m.lower(): i
+    for i, m in enumerate(
+        [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ],
+        start=1,
+    )
+}
+
+_MONTH_YEAR_RE: Final = re.compile(
+    r"^(?P<month>January|February|March|April|May|June|July|August|September|October|November|December)\s+(?P<year>\d{4})$",
+    re.IGNORECASE,
+)
+_DAY_MONTH_YEAR_RE: Final = re.compile(
+    r"^(?P<day>\d{1,2})\s+(?P<month>January|February|March|April|May|June|July|August|September|October|November|December)\s+(?P<year>\d{4})$",
+    re.IGNORECASE,
+)
+_CHANGE_PENCE_RE: Final = re.compile(r"£([\d,]+)")
+_CHANGE_PCT_RE: Final = re.compile(r"\(([\d.]+)%\)")
+
+
+def _parse_detail_timeline(tree: HTMLParser) -> list[PropertyTimelineEvent]:
+    """Extract the "Property timeline" block from a detail page.
+
+    Zoopla renders the timeline inside ``<section aria-labelledby="timeline">``
+    with one ``Timeline_timelineListItem__<hash>`` per event. Each item has:
+    a badge (Reduced / Listed / Sold / etc.), a date string ("February 2026"
+    or the day-of-month variant for recent events), a price, and optionally
+    a ``Timeline_timelineChange__`` node carrying the delta (``£50,000 (7.7%)``
+    with a directional arrow icon).
+    """
+    container = tree.css_first(
+        'ul[class*="Timeline_timelineList"]'
+    ) or tree.css_first('section[aria-labelledby="timeline"] ul')
+    if container is None:
+        return []
+
+    events: list[PropertyTimelineEvent] = []
+    prev_price_pence: int | None = None
+    for li in container.css('li[class*="Timeline_timelineListItem"]'):
+        badge_el = li.css_first('[class*="Timeline_timelineBadge"]')
+        date_el = li.css_first('[class*="Timeline_timelineDate"]')
+        price_el = li.css_first('[class*="Timeline_timelinePrice"]')
+        change_el = li.css_first('[class*="Timeline_timelineChange"]')
+        if date_el is None:
+            continue
+
+        badge_text = _clean_whitespace(badge_el.text(strip=True)) if badge_el else None
+        date_text = _clean_whitespace(date_el.text(strip=True)) or ""
+        price_text = (
+            _clean_whitespace(price_el.text(strip=True)) if price_el else None
+        )
+        change_text = (
+            _clean_whitespace(change_el.text(strip=True)) if change_el else None
+        )
+
+        kind = _TIMELINE_KIND_MAP.get(
+            (badge_text or "").lower().strip(),
+            PropertyTimelineEventKind.UNKNOWN,
+        )
+        occurred = _parse_timeline_date(date_text)
+        price_pence = _extract_price_pence(price_text) if price_text else None
+
+        change_pence: int | None = None
+        change_pct: float | None = None
+        if change_text:
+            if (pm := _CHANGE_PENCE_RE.search(change_text)):
+                try:
+                    change_pence = int(pm.group(1).replace(",", "")) * 100
+                except ValueError:
+                    change_pence = None
+            if (pctm := _CHANGE_PCT_RE.search(change_text)):
+                try:
+                    change_pct = float(pctm.group(1))
+                except ValueError:
+                    change_pct = None
+            # Reduced events are directional — negate the sign explicitly.
+            if kind == PropertyTimelineEventKind.REDUCED:
+                if change_pence is not None and change_pence > 0:
+                    change_pence = -change_pence
+                if change_pct is not None and change_pct > 0:
+                    change_pct = -change_pct
+        elif (
+            prev_price_pence is not None
+            and price_pence is not None
+            and kind in {PropertyTimelineEventKind.REDUCED, PropertyTimelineEventKind.INCREASED}
+        ):
+            change_pence = price_pence - prev_price_pence
+            if prev_price_pence:
+                change_pct = round(100 * change_pence / prev_price_pence, 2)
+
+        raw_parts = [p for p in (badge_text, date_text, price_text, change_text) if p]
+        events.append(
+            PropertyTimelineEvent(
+                kind=kind,
+                occurred_at=occurred,
+                occurred_at_text=date_text,
+                price_pence=price_pence,
+                change_pence=change_pence,
+                change_pct=change_pct,
+                raw=" | ".join(raw_parts),
+            )
+        )
+        if price_pence is not None:
+            prev_price_pence = price_pence
+
+    return events
+
+
+def _parse_timeline_date(text: str) -> date | None:
+    """Parse 'February 2026' or '13 February 2026' into a ``date`` (day 1 for month-only)."""
+    text = text.strip()
+    if not text:
+        return None
+    if (m := _DAY_MONTH_YEAR_RE.match(text)):
+        day = int(m.group("day"))
+        month = _MONTH_NAMES.get(m.group("month").lower())
+        year = int(m.group("year"))
+        if month:
+            try:
+                return date(year, month, day)
+            except ValueError:
+                return None
+    if (m := _MONTH_YEAR_RE.match(text)):
+        month = _MONTH_NAMES.get(m.group("month").lower())
+        year = int(m.group("year"))
+        if month:
+            try:
+                return date(year, month, 1)
+            except ValueError:
+                return None
+    return None
+
+
+# ── NTS-derived normalization helpers ───────────────────────────────────────
+
+
+def _nts_council_tax_band(entries: dict[str, str]) -> str | None:
+    raw = entries.get("council_tax_band")
+    if not raw:
+        return None
+    stripped = raw.strip().upper()
+    if len(stripped) == 1 and "A" <= stripped <= "I":
+        return stripped
+    match = re.search(r"\b([A-I])\b", stripped)
+    return match.group(1) if match else None
+
+
+def _nts_broadband(entries: dict[str, str]) -> BroadbandSpeed | None:
+    tech_raw = entries.get("broadband")
+    speed_raw = entries.get("broadband_speed")
+    raw_bits = [v for v in (tech_raw, speed_raw) if v]
+    if not raw_bits:
+        return None
+
+    tech = tech_raw.strip() if tech_raw else None
+    tech_upper = (tech or "").upper()
+    technology = tech if tech and tech.lower() != "ask agent" else None
+
+    mbps: int | None = None
+    if speed_raw:
+        match = re.search(r"(\d{1,5})\s*Mbps", speed_raw, re.IGNORECASE)
+        if match:
+            try:
+                mbps = int(match.group(1))
+            except ValueError:
+                mbps = None
+
+    tier = BroadbandTier.UNKNOWN
+    if mbps is not None:
+        if mbps >= 1000:
+            tier = BroadbandTier.GIGABIT
+        elif mbps >= 300:
+            tier = BroadbandTier.ULTRAFAST
+        elif mbps >= 30:
+            tier = BroadbandTier.SUPERFAST
+        else:
+            tier = BroadbandTier.BASIC
+    elif "FTTP" in tech_upper or "GIGABIT" in tech_upper:
+        tier = BroadbandTier.ULTRAFAST
+    elif "FTTC" in tech_upper:
+        tier = BroadbandTier.SUPERFAST
+    elif "ADSL" in tech_upper or "DSL" in tech_upper:
+        tier = BroadbandTier.BASIC
+
+    return BroadbandSpeed(
+        tier=tier,
+        max_download_mbps=mbps,
+        technology=technology,
+        raw=" | ".join(raw_bits),
+    )
+
+
+def _nts_mobile_signal(entries: dict[str, str]) -> list[MobileSignal]:
+    """Zoopla only surfaces a single 'Mobile coverage' text value (not per-carrier).
+
+    We emit a single ``MobileSignal`` entry with carrier ``'all'`` when the
+    disclosure is anything other than ``Ask agent``; OTM is the only portal
+    with per-carrier data (handled in its own parser).
+    """
+    raw = entries.get("mobile_coverage")
+    if not raw or raw.strip().lower() in {"", "ask agent"}:
+        return []
+    level = MobileCoverageLevel.UNKNOWN
+    lowered = raw.lower()
+    if any(tok in lowered for tok in ("strong", "good", "enhanced", "excellent")):
+        level = MobileCoverageLevel.ENHANCED
+    elif any(tok in lowered for tok in ("likely", "probable")):
+        level = MobileCoverageLevel.LIKELY
+    elif any(tok in lowered for tok in ("limited", "patchy", "variable")):
+        level = MobileCoverageLevel.LIMITED
+    elif any(tok in lowered for tok in ("none", "no signal", "no coverage")):
+        level = MobileCoverageLevel.NONE
+    return [MobileSignal(carrier="all", voice=level, data=level)]
+
+
+_MONEY_PER_ANNUM_RE: Final = re.compile(r"£\s*([\d,]+(?:\.\d+)?)\s*(?:per\s+annum|p\.?a\.?|per\s+year|/year|year|annual)", re.IGNORECASE)
+_MONEY_ANY_RE: Final = re.compile(r"£\s*([\d,]+(?:\.\d+)?)")
+_YEARS_RE: Final = re.compile(r"(\d{1,4})\s*(?:years?|yrs?)", re.IGNORECASE)
+_PCT_RE: Final = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+
+
+def _nts_lease(entries: dict[str, str]) -> LeaseTerms | None:
+    """Assemble leasehold economics from whatever keys Zoopla exposed.
+
+    Keys seen: ``lease_length`` (e.g. "115 years remaining"), ``ground_rent``
+    ("£450 per annum"), ``service_charge`` ("£3,039 per annum"),
+    ``review_date`` / ``ground_rent_review`` ("Every 10 years"), and
+    occasionally a free-form ``lease_end`` or ``review_percentage``.
+    Everything stays optional so freehold properties produce ``None``.
+    """
+    keys = (
+        "lease_length",
+        "ground_rent",
+        "service_charge",
+        "review_date",
+        "ground_rent_review",
+        "review_period",
+        "ground_rent_review_percentage",
+        "lease_review_percentage",
+    )
+    present = {k: entries[k] for k in keys if k in entries and entries[k]}
+    if not present:
+        return None
+
+    years_remaining: int | None = None
+    length_years: int | None = None
+    if (ll := present.get("lease_length")):
+        years_match = _YEARS_RE.search(ll)
+        if years_match:
+            n = int(years_match.group(1))
+            # Heuristic: <= 999 is "years remaining" in Zoopla's NTS copy;
+            # anything higher is treated as total lease length (e.g. 125 / 999).
+            if "remaining" in ll.lower() or "left" in ll.lower():
+                years_remaining = n
+            else:
+                length_years = n
+
+    ground_rent_pence: int | None = None
+    if (gr := present.get("ground_rent")):
+        money = _MONEY_PER_ANNUM_RE.search(gr) or _MONEY_ANY_RE.search(gr)
+        if money:
+            try:
+                ground_rent_pence = round(float(money.group(1).replace(",", "")) * 100)
+            except ValueError:
+                pass
+
+    service_charge_pence: int | None = None
+    if (sc := present.get("service_charge")):
+        money = _MONEY_PER_ANNUM_RE.search(sc) or _MONEY_ANY_RE.search(sc)
+        if money:
+            try:
+                service_charge_pence = round(float(money.group(1).replace(",", "")) * 100)
+            except ValueError:
+                pass
+
+    review_years: int | None = None
+    if (rv := present.get("review_date") or present.get("ground_rent_review") or present.get("review_period")):
+        years_match = _YEARS_RE.search(rv)
+        if years_match:
+            review_years = int(years_match.group(1))
+
+    review_pct: float | None = None
+    for k in ("ground_rent_review_percentage", "lease_review_percentage"):
+        if k in present:
+            pct_match = _PCT_RE.search(present[k])
+            if pct_match:
+                try:
+                    review_pct = float(pct_match.group(1))
+                except ValueError:
+                    pass
+            break
+
+    return LeaseTerms(
+        years_remaining=years_remaining,
+        length_years=length_years,
+        ground_rent_pence_per_year=ground_rent_pence,
+        ground_rent_review_period_years=review_years,
+        ground_rent_review_pct=review_pct,
+        service_charge_pence_per_year=service_charge_pence,
+        raw={k: v for k, v in present.items()},
+    )
+
+
+def _parse_detail_epc(nextjs: dict[str, object]) -> EnergyRating | None:
+    block = nextjs.get("epc_block")
+    if not isinstance(block, dict):
+        return None
+    band = block.get("current")
+    if not isinstance(band, str) or len(band) != 1 or not ("A" <= band <= "G"):
+        return None
+    return EnergyRating(current=band, raw=str(block.get("raw") or f"EPC Rating: {band}"))
+
+
+def _build_material_information(
+    *,
+    nts_entries: dict[str, str],
+    council_tax_band: str | None,
+    tenure: Tenure,
+    lease: LeaseTerms | None,
+    epc: EnergyRating | None,
+    broadband: BroadbandSpeed | None,
+    mobile_signal: list[MobileSignal],
+) -> MaterialInformation | None:
+    """Roll the individual NTS helpers back up into a single structured bundle.
+
+    Returns ``None`` when nothing useful was exposed; otherwise every captured
+    field is surfaced so a consumer can render a "Material Information" card
+    without re-reading the listing description.
+    """
+    has_any = any(
+        (
+            nts_entries,
+            council_tax_band,
+            tenure != Tenure.UNKNOWN,
+            lease is not None,
+            epc is not None,
+            broadband is not None,
+            mobile_signal,
+        )
+    )
+    if not has_any:
+        return None
+
+    known_keys = {
+        "tenure",
+        "council_tax_band",
+        "broadband",
+        "broadband_speed",
+        "mobile_coverage",
+        "ground_rent",
+        "service_charge",
+        "lease_length",
+        "review_date",
+        "ground_rent_review",
+        "review_period",
+        "ground_rent_review_percentage",
+        "lease_review_percentage",
+        "parking",
+        "heating",
+        "electricity",
+        "water",
+        "sewerage",
+        "restrictions",
+        "rights_and_easements",
+        "flood_risk",
+    }
+
+    return MaterialInformation(
+        council_tax_band=council_tax_band,
+        tenure=tenure,
+        lease=lease,
+        epc=epc,
+        broadband=broadband,
+        mobile_signal=mobile_signal,
+        parking_raw=nts_entries.get("parking"),
+        heating_raw=nts_entries.get("heating"),
+        electricity_raw=nts_entries.get("electricity"),
+        water_raw=nts_entries.get("water"),
+        sewerage_raw=nts_entries.get("sewerage"),
+        restrictions_raw=nts_entries.get("restrictions"),
+        rights_and_easements_raw=nts_entries.get("rights_and_easements"),
+        flood_risk_raw=nts_entries.get("flood_risk"),
+        extra={
+            k: v
+            for k, v in nts_entries.items()
+            if k not in known_keys and v
+        },
+    )
