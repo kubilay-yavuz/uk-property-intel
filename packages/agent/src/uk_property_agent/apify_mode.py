@@ -1,7 +1,8 @@
 """Optional delegation of the agent's heavier tools to hosted Apify actors.
 
-Three tools currently fan out to hosted actors when
-:envvar:`APIFY_API_TOKEN` is configured:
+Eight tools currently fan out to hosted actors when
+:envvar:`APIFY_API_TOKEN` is configured. Three own richer upstream
+logic the local path can't replicate locally:
 
 * :func:`maybe_delegate_search_planning_applications` — delegates to the
   ``planning-aggregator`` actor (A5). Lets the free-tier agent piggy-back
@@ -18,17 +19,35 @@ Three tools currently fan out to hosted actors when
   sourced against the private (national) station list; the local path
   is limited to the postcode-median baseline.
 
-All three helpers return the same dict shape the local tool produces,
-so ``tools.py`` can simply call them before constructing its own clients
-and fall through to the legacy path when they return ``None``.
+The remaining five let the agent delegate listings / sold-prices /
+EPC / amenity lookups to actors that ship with the full anti-bot moat
+and per-portal proxy rotation the OSS crawler doesn't have:
+
+* :func:`maybe_delegate_search_listings` — delegates each portal's
+  ``search_{zoopla,rightmove,onthemarket}`` tool to the matching
+  ``{portal}-listings`` actor (A1-A3).
+* :func:`maybe_delegate_get_listing_by_url` — delegates
+  ``get_listing_by_url`` to the ``uk-listings-hydrate`` actor (A14b).
+* :func:`maybe_delegate_sold_prices_for_postcode` — delegates to the
+  ``uk-sold-prices`` actor (A14).
+* :func:`maybe_delegate_epc_certificates_for_postcode` — delegates to
+  the ``epc-ct-ppd-unified`` actor (A4), restricted to EPC rows so the
+  returned shape matches the local tool.
+* :func:`maybe_delegate_amenities_near_postcode` — delegates to the
+  ``uk-location-intel`` actor (A12), fetching only the ``amenities``
+  source so the cost per call stays proportional to the local path.
+
+All helpers return the same dict shape the local tool produces,
+so ``tools.py`` can simply call them before constructing its own
+clients and fall through to the legacy path when they return ``None``.
 
 The actor dataset rows are always parsed back through the canonical
-:mod:`uk_property_apis` / :mod:`uk_property_avm` Pydantic models so the
-output shape doesn't depend on whether the row came from the local
-clients or the actor. Rows that fail validation become error strings
-on the resulting dict rather than taking down the whole call —
-downstream agents can inspect ``errors`` to decide whether to re-run
-locally.
+:mod:`uk_property_apis` / :mod:`uk_property_avm` /
+:mod:`uk_property_scrapers` Pydantic models so the output shape
+doesn't depend on whether the row came from the local clients or the
+actor. Rows that fail validation become error strings on the resulting
+dict rather than taking down the whole call — downstream agents can
+inspect ``errors`` to decide whether to re-run locally.
 """
 
 from __future__ import annotations
@@ -43,7 +62,9 @@ from uk_property_apis import (
     PlanningApplication,
 )
 from uk_property_apis.idox import get_council
+from uk_property_apis.land_registry import PricePaidRecord
 from uk_property_avm import NeighbourhoodFeatures, ValuationEstimate
+from uk_property_scrapers.schema import Listing
 
 
 async def maybe_delegate_search_planning_applications(
@@ -505,9 +526,538 @@ def _as_int(value: object) -> int | None:
     return None
 
 
+PortalSlug = Literal["zoopla", "rightmove", "onthemarket"]
+
+
+_LISTING_ACTOR_SLUG: dict[PortalSlug, str] = {
+    "zoopla": "zoopla-listings",
+    "rightmove": "rightmove-listings",
+    "onthemarket": "onthemarket-listings",
+}
+
+
+async def maybe_delegate_search_listings(
+    *,
+    source: PortalSlug,
+    location: str,
+    transaction: str,
+    min_price: int | None,
+    max_price: int | None,
+    min_beds: int | None,
+    max_beds: int | None,
+    max_pages: int,
+) -> dict[str, Any] | None:
+    """Try to delegate a portal search tool to the matching hosted actor.
+
+    Returns ``None`` when delegation isn't configured for the portal so
+    the caller can fall through to the local ``crawl_{portal}_search``
+    path. When delegation runs, the returned dict matches the local
+    tool shape exactly: ``source``, ``query``, ``pages_fetched``,
+    ``listings``, ``errors``.
+
+    The actor is called with a single-query input
+    (``queries=[{location, transaction, minPrice, ...}]``),
+    ``hydrateDetails=False`` (matching the local tool — detail-page
+    hydration is reserved for :func:`maybe_delegate_get_listing_by_url`),
+    and ``maxPagesPerQuery=max_pages`` so the per-run cost is bounded
+    the same way.
+    """
+
+    slug = _LISTING_ACTOR_SLUG.get(source)
+    if slug is None:  # pragma: no cover - guarded by the Literal type
+        raise ValueError(f"unsupported portal {source!r}")
+
+    delegation = ApifyDelegation.resolve(slug)
+    if delegation is None:
+        return None
+
+    actor_input = _build_listing_search_actor_input(
+        location=location,
+        transaction=transaction,
+        min_price=min_price,
+        max_price=max_price,
+        min_beds=min_beds,
+        max_beds=max_beds,
+        max_pages=max_pages,
+    )
+
+    result = await delegation.call(actor_input)
+    return _map_listings_result(
+        result.items,
+        result.run_meta,
+        source=source,
+        location=location,
+        transaction=transaction,
+        min_price=min_price,
+        max_price=max_price,
+        min_beds=min_beds,
+        max_beds=max_beds,
+    )
+
+
+async def maybe_delegate_get_listing_by_url(*, url: str) -> dict[str, Any] | None:
+    """Try to delegate ``get_listing_by_url`` to the hosted
+    ``uk-listings-hydrate`` actor.
+
+    Returns ``None`` when delegation isn't configured so the caller can
+    fall through to the local per-portal parser. When delegation runs,
+    the returned dict matches the local tool shape: ``source``, ``url``,
+    ``listing`` (nullable when the actor couldn't parse the page).
+
+    The actor is called with a single ``listingUrls=[{url}]`` input and
+    ``batchConcurrency=1`` because the agent only ever asks about one
+    URL. The ``transaction`` hint defaults to ``"sale"`` — callers who
+    know the URL is a rental listing should use the portal-specific
+    ``search_*`` tools instead (the agent never carries through
+    transaction context from the calling turn).
+    """
+
+    delegation = ApifyDelegation.resolve("uk-listings-hydrate")
+    if delegation is None:
+        return None
+
+    actor_input: dict[str, Any] = {
+        "listingUrls": [{"url": url, "transaction": "sale"}],
+        "batchConcurrency": 1,
+        "dedupeUrls": True,
+    }
+
+    result = await delegation.call(actor_input)
+    return _map_hydrate_result(result.items, url=url)
+
+
+async def maybe_delegate_sold_prices_for_postcode(
+    *, postcode: str
+) -> dict[str, Any] | None:
+    """Try to delegate ``sold_prices_for_postcode`` to the hosted
+    ``uk-sold-prices`` actor.
+
+    Returns ``None`` when delegation isn't configured so the caller can
+    fall through to the local :class:`LandRegistryClient`. When
+    delegation runs, the returned dict matches the local tool shape
+    exactly: ``postcode``, ``count``, ``records``. Each record is a
+    :class:`PricePaidRecord` JSON dump (snake-case keys, ``exclude_none``)
+    — the actor emits rows with camelCase aliases so we re-validate
+    through the canonical model before re-dumping to keep the shape
+    stable for callers that already consume the local path.
+
+    The actor is called with a single-postcode input (``postcodes=[pc]``)
+    and ``postcodeConcurrency=1`` because the agent only ever asks
+    about one postcode at a time.
+    """
+
+    delegation = ApifyDelegation.resolve("uk-sold-prices")
+    if delegation is None:
+        return None
+
+    normalised = postcode.strip().upper()
+    actor_input: dict[str, Any] = {
+        "postcodes": [normalised],
+        "postcodeConcurrency": 1,
+        "includeRightmoveUrl": False,
+    }
+
+    result = await delegation.call(actor_input)
+    return _map_sold_prices_result(result.items, postcode=normalised)
+
+
+async def maybe_delegate_epc_certificates_for_postcode(
+    *, postcode: str, size: int
+) -> dict[str, Any] | None:
+    """Try to delegate ``epc_certificates_for_postcode`` to the hosted
+    ``epc-ct-ppd-unified`` actor.
+
+    Returns ``None`` when delegation isn't configured so the caller can
+    fall through to the local :class:`EPCClient`. The actor owns a
+    unified EPC + Council-Tax + Price-Paid join keyed on the postcode;
+    we restrict the run to ``includeEpc=True`` and disable the other
+    sources so the returned shape matches the local tool's
+    ``{postcode, count, next_search_after, rows}`` contract (the extra
+    unified fields would confuse callers that already consume the
+    local path).
+
+    The actor is called with a single-postcode input
+    (``postcodes=[pc]``), ``postcodeConcurrency=1``, and
+    ``maxEpcPerPostcode`` bounded by ``size`` so the per-run cost is
+    proportional to the local tool.
+    """
+
+    delegation = ApifyDelegation.resolve("epc-ct-ppd-unified")
+    if delegation is None:
+        return None
+
+    normalised = postcode.strip().upper()
+    actor_input: dict[str, Any] = {
+        "postcodes": [normalised],
+        "postcodeConcurrency": 1,
+        "includeEpc": True,
+        "includePpd": False,
+        "includeCouncilTax": False,
+        "maxEpcPerPostcode": max(1, min(size, 500)),
+    }
+
+    result = await delegation.call(actor_input)
+    return _map_epc_result(result.items, postcode=normalised)
+
+
+async def maybe_delegate_amenities_near_postcode(
+    *,
+    postcode: str,
+    categories: list[str],
+    radius_m: float,
+    limit: int,
+) -> dict[str, Any] | None:
+    """Try to delegate ``amenities_near_postcode`` to the hosted
+    ``uk-location-intel`` actor.
+
+    Returns ``None`` when delegation isn't configured so the caller can
+    fall through to the local :class:`OverpassClient`. When delegation
+    runs, the returned dict matches the local tool shape exactly:
+    ``postcode``, ``origin`` (``{lat, lng}``), ``radius_m``,
+    ``categories``, ``count``, ``items``, ``truncated``.
+
+    The actor is called with a single-point input (``points=[{postcode}]``),
+    ``sources=["amenities"]`` to skip the NaPTAN / isochrone / overlay
+    blocks (none of which the local tool emits), and
+    ``pointConcurrency=1``. The actor groups amenities by category; we
+    flatten the result, sort by ``distance_m`` ascending and trim to
+    ``limit`` so the shape matches the local sort order.
+    """
+
+    delegation = ApifyDelegation.resolve("uk-location-intel")
+    if delegation is None:
+        return None
+
+    normalised = postcode.strip().upper()
+    actor_input: dict[str, Any] = {
+        "points": [{"postcode": normalised}],
+        "sources": ["amenities"],
+        "amenityRadiusM": round(radius_m),
+        "amenityCategories": list(categories) or ["rail_station"],
+        "pointConcurrency": 1,
+    }
+
+    result = await delegation.call(actor_input)
+    return _map_amenities_result(
+        result.items,
+        postcode=normalised,
+        radius_m=radius_m,
+        categories=list(categories) or ["rail_station"],
+        limit=limit,
+    )
+
+
+def _build_listing_search_actor_input(
+    *,
+    location: str,
+    transaction: str,
+    min_price: int | None,
+    max_price: int | None,
+    min_beds: int | None,
+    max_beds: int | None,
+    max_pages: int,
+) -> dict[str, Any]:
+    """Map :class:`SearchListingsArgs` to the listing actor input schema."""
+
+    query: dict[str, Any] = {
+        "location": location,
+        "transaction": transaction if transaction in {"sale", "rent"} else "sale",
+    }
+    if min_price is not None:
+        query["minPrice"] = min_price
+    if max_price is not None:
+        query["maxPrice"] = max_price
+    if min_beds is not None:
+        query["minBeds"] = min_beds
+    if max_beds is not None:
+        query["maxBeds"] = max_beds
+    return {
+        "queries": [query],
+        "maxPagesPerQuery": max_pages,
+        "hydrateDetails": False,
+        "queryConcurrency": 1,
+        "dedupeQueries": True,
+    }
+
+
+def _map_listings_result(
+    items: list[dict[str, Any]],
+    run_meta: dict[str, Any] | None,
+    *,
+    source: str,
+    location: str,
+    transaction: str,
+    min_price: int | None,
+    max_price: int | None,
+    min_beds: int | None,
+    max_beds: int | None,
+) -> dict[str, Any]:
+    """Shape A1-A3 actor output to match the local ``search_{portal}`` tool."""
+
+    listings: list[dict[str, Any]] = []
+    parse_errors: list[str] = []
+    for row in items:
+        listing = _validate_listing_row(row)
+        if isinstance(listing, str):
+            parse_errors.append(listing)
+            continue
+        listings.append(listing.model_dump(mode="json", exclude_none=True))
+
+    pages_fetched = _listings_pages_fetched(run_meta)
+    txn = transaction if transaction in {"sale", "rent"} else "sale"
+
+    return {
+        "source": source,
+        "query": {
+            "location": location,
+            "transaction": txn,
+            "min_price": min_price,
+            "max_price": max_price,
+            "min_beds": min_beds,
+            "max_beds": max_beds,
+        },
+        "pages_fetched": pages_fetched,
+        "listings": listings,
+        "errors": parse_errors or None,
+    }
+
+
+def _validate_listing_row(row: dict[str, Any]) -> Listing | str:
+    """Re-validate an actor row through :class:`Listing`.
+
+    The three listing actors all share the same ``_listing_to_record``
+    helper (``Listing.model_dump(mode="json")`` with no extras) so the
+    row is validator-clean — but we run it through ``model_validate`` so
+    callers get the canonical snake-case keys + ``exclude_none``
+    normalisation the local tool emits, rather than whatever defaults
+    the actor serialised.
+    """
+
+    try:
+        return Listing.model_validate(row)
+    except ValidationError as exc:
+        return f"listings actor row failed validation: {exc}"
+
+
+def _listings_pages_fetched(run_meta: dict[str, Any] | None) -> int | None:
+    """Extract the total ``pages_fetched`` from the run meta.
+
+    The listing actors write ``totals.pages`` into the run meta when the
+    per-query crawler reports it; we mirror the local ``SearchReport``
+    shape's ``pages_fetched`` field. Returns ``None`` when the actor
+    didn't publish the total.
+    """
+
+    if not isinstance(run_meta, dict):
+        return None
+    totals = run_meta.get("totals")
+    if isinstance(totals, dict):
+        pages = _as_int(totals.get("pages"))
+        if pages is not None:
+            return pages
+        pages_fetched = _as_int(totals.get("pages_fetched"))
+        if pages_fetched is not None:
+            return pages_fetched
+    return None
+
+
+def _map_hydrate_result(
+    items: list[dict[str, Any]],
+    *,
+    url: str,
+) -> dict[str, Any]:
+    """Shape the A14b single-URL row to match ``get_listing_by_url``."""
+
+    if not items:
+        return {"source": _portal_from_url(url), "url": url, "listing": None}
+
+    row = items[0]
+    listing = _validate_listing_row(row)
+    if isinstance(listing, str):
+        raise DelegationError(f"uk-listings-hydrate row failed validation: {listing}")
+
+    listing_dump = listing.model_dump(mode="json", exclude_none=True)
+    portal = listing_dump.get("source") or _portal_from_url(url)
+    final_url = listing_dump.get("source_url") or url
+
+    return {
+        "source": portal,
+        "url": final_url,
+        "listing": listing_dump,
+    }
+
+
+def _portal_from_url(url: str) -> str | None:
+    """Best-effort portal slug from the URL host (mirrors the local tool)."""
+
+    lowered = url.lower()
+    if "zoopla" in lowered:
+        return "zoopla"
+    if "rightmove" in lowered:
+        return "rightmove"
+    if "onthemarket" in lowered:
+        return "onthemarket"
+    return None
+
+
+def _map_sold_prices_result(
+    items: list[dict[str, Any]],
+    *,
+    postcode: str,
+) -> dict[str, Any]:
+    """Shape A14 actor rows to match ``sold_prices_for_postcode``.
+
+    The actor emits each :class:`PricePaidRecord` with
+    ``by_alias=True`` (camelCase) whereas the local tool dumps
+    snake_case. We re-validate each row through ``PricePaidRecord``
+    (which accepts both alias and field-name keys) and then dump
+    without aliases so the returned shape matches the local path
+    byte-for-byte.
+    """
+
+    records: list[dict[str, Any]] = []
+    parse_errors: list[str] = []
+    for row in items:
+        try:
+            record = PricePaidRecord.model_validate(row)
+        except ValidationError as exc:
+            parse_errors.append(f"uk-sold-prices row validation failed: {exc}")
+            continue
+        records.append(record.model_dump(mode="json", exclude_none=True))
+
+    return {
+        "postcode": postcode,
+        "count": len(records),
+        "records": records,
+        "errors": parse_errors or None,
+    }
+
+
+def _map_epc_result(
+    items: list[dict[str, Any]],
+    *,
+    postcode: str,
+) -> dict[str, Any]:
+    """Shape A4 unified rows to match ``epc_certificates_for_postcode``.
+
+    Each actor row is a ``JoinedAddressRecord`` envelope with an optional
+    ``epc`` sub-object (present iff the address had an EPC certificate;
+    guaranteed here because the delegation sets ``includeEpc=True`` and
+    disables PPD / Council Tax). We extract the ``epc`` sub-objects so
+    the returned shape matches the local tool's
+    ``{postcode, count, next_search_after, rows}`` contract, with each
+    row being an :class:`EPCCertificateRow` JSON dump.
+
+    ``next_search_after`` is always ``None`` for delegation — the actor
+    bounds its per-postcode fetch via ``maxEpcPerPostcode`` rather than
+    surfacing a pagination cursor.
+    """
+
+    rows: list[dict[str, Any]] = []
+    parse_errors: list[str] = []
+    for envelope in items:
+        epc_raw = envelope.get("epc") if isinstance(envelope, dict) else None
+        if not isinstance(epc_raw, dict):
+            continue
+        cleaned = {k: v for k, v in epc_raw.items() if v is not None}
+        rows.append(cleaned)
+
+    if not rows and parse_errors:
+        # Pure-failure runs surface the parse errors so callers can
+        # log them and decide whether to retry locally.
+        pass
+
+    return {
+        "postcode": postcode,
+        "count": len(rows),
+        "next_search_after": None,
+        "rows": rows,
+        "errors": parse_errors or None,
+    }
+
+
+def _map_amenities_result(
+    items: list[dict[str, Any]],
+    *,
+    postcode: str,
+    radius_m: float,
+    categories: list[str],
+    limit: int,
+) -> dict[str, Any]:
+    """Shape A12 location-pack rows to match ``amenities_near_postcode``.
+
+    The actor's ``amenities`` sub-object groups hits by category. The
+    local tool returns a single flat list sorted by distance ascending;
+    we replicate that by merging ``hits_by_category`` and sorting on
+    ``distance_m`` (missing distances sort last) before trimming to
+    ``limit``.
+
+    ``origin`` / ``postcode`` (normalised) come from the actor's
+    ``resolved`` block which mirrors the postcodes.io lookup the local
+    tool runs anyway.
+    """
+
+    if not items:
+        raise DelegationError(
+            f"uk-location-intel actor returned no rows for postcode {postcode!r}"
+        )
+
+    envelope = items[0]
+    resolved = envelope.get("resolved") if isinstance(envelope, dict) else None
+    origin_lat: float | None = None
+    origin_lng: float | None = None
+    if isinstance(resolved, dict):
+        lat_value = resolved.get("lat")
+        lng_value = resolved.get("lng")
+        if isinstance(lat_value, (int, float)):
+            origin_lat = float(lat_value)
+        if isinstance(lng_value, (int, float)):
+            origin_lng = float(lng_value)
+
+    amenities = envelope.get("amenities") if isinstance(envelope, dict) else None
+    flat_hits: list[dict[str, Any]] = []
+    if isinstance(amenities, dict):
+        hits_by_category = amenities.get("hits_by_category")
+        if isinstance(hits_by_category, dict):
+            for cat_hits in hits_by_category.values():
+                if isinstance(cat_hits, list):
+                    flat_hits.extend(h for h in cat_hits if isinstance(h, dict))
+
+    def _distance_key(row: dict[str, Any]) -> float:
+        raw = row.get("distance_m")
+        if isinstance(raw, (int, float)):
+            return float(raw)
+        return float("inf")
+
+    flat_hits.sort(key=_distance_key)
+    trimmed = flat_hits[:limit]
+
+    resolved_postcode = postcode
+    if isinstance(resolved, dict):
+        upstream_postcode = resolved.get("postcode")
+        if isinstance(upstream_postcode, str) and upstream_postcode:
+            resolved_postcode = upstream_postcode
+
+    return {
+        "postcode": resolved_postcode,
+        "origin": {"lat": origin_lat, "lng": origin_lng},
+        "radius_m": radius_m,
+        "categories": categories,
+        "count": len(flat_hits),
+        "items": trimmed,
+        "truncated": len(flat_hits) > len(trimmed),
+    }
+
+
 __all__ = [
     "DelegationError",
+    "PortalSlug",
+    "maybe_delegate_amenities_near_postcode",
+    "maybe_delegate_epc_certificates_for_postcode",
     "maybe_delegate_estimate_property_value",
+    "maybe_delegate_get_listing_by_url",
     "maybe_delegate_landlord_network_for_company",
+    "maybe_delegate_search_listings",
     "maybe_delegate_search_planning_applications",
+    "maybe_delegate_sold_prices_for_postcode",
 ]

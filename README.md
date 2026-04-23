@@ -65,8 +65,6 @@ uk-property-intel/
 │   └── apify_client/   → uk-property-apify-client
 ├── scripts/
 │   └── smoke.py        ← live integration harness (no mocks)
-├── PLAN.md             ← full product + engineering plan
-├── STATUS.md           ← what's built vs what's left
 ├── README.md           ← this file
 ├── LICENSE             ← MIT
 ├── pyproject.toml      ← uv workspace over packages/*
@@ -114,8 +112,6 @@ uv run ruff check .
 # Live smoke (hits real APIs):
 uv run python scripts/smoke.py
 ```
-
-See [STATUS.md](STATUS.md) for the current coverage map, and [PLAN.md](PLAN.md) for the full product + engineering plan.
 
 ---
 

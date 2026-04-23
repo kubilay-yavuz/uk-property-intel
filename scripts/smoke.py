@@ -664,8 +664,8 @@ async def probe_nomis() -> ProbeResult:
     both a ``TYPE{N}`` pseudo-geography *and* the correct measure codelist
     for each dataset. The measure codes baked into the convenience methods
     predate the live-smoke harness and are wrong for the real API — known
-    gap, tracked in STATUS.md. The generic transport is what production
-    code relies on, so that's what we canary.
+    gap. The generic transport is what production code relies on, so
+    that's what we canary.
 
     ``TYPE499`` is Nomis's pseudo-geography for "all countries" — it always
     returns a non-empty result for ``NM_162_1`` (claimant count).

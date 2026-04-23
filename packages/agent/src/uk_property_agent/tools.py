@@ -497,7 +497,7 @@ def _run_search_tool(
     ctx: ToolContext,
     *,
     crawl_fn: Callable[..., Awaitable[Any]],
-    source: str,
+    source: Literal["zoopla", "rightmove", "onthemarket"],
 ) -> Callable[..., Awaitable[dict[str, Any]]]:
     async def _tool(
         location: str,
@@ -508,7 +508,28 @@ def _run_search_tool(
         max_beds: int | None = None,
         max_pages: int = 1,
     ) -> dict[str, Any]:
+        from uk_property_agent.apify_mode import maybe_delegate_search_listings
+
         txn = "sale" if transaction not in {"sale", "rent"} else transaction
+
+        # The hosted ``{portal}-listings`` actor ships the full anti-bot
+        # moat (residential proxies, stealth browser, per-domain rate
+        # limiter). When it's reachable we prefer it — the local
+        # ``SimpleCrawler`` has no Playwright fallback and will be
+        # blocked by Cloudflare on Zoopla within the first few requests.
+        delegated = await maybe_delegate_search_listings(
+            source=source,
+            location=location,
+            transaction=txn,
+            min_price=min_price,
+            max_price=max_price,
+            min_beds=min_beds,
+            max_beds=max_beds,
+            max_pages=max_pages,
+        )
+        if delegated is not None:
+            return delegated
+
         async with ctx.crawler_factory() as crawler:
             report = await crawl_fn(
                 crawler,
@@ -625,6 +646,8 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
         from uk_property_scrapers import rightmove as _rm_scraper
         from uk_property_scrapers import zoopla as _zp_scraper
 
+        from uk_property_agent.apify_mode import maybe_delegate_get_listing_by_url
+
         host = (urlparse(url).hostname or "").lower()
         portal: str | None = None
         for keyword, slug in _PORTAL_HOST_KEYWORDS.items():
@@ -638,6 +661,14 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
                 "search-results URL or a different portal, fall back to "
                 "`search_rightmove` / `search_zoopla` / `search_onthemarket`."
             )
+
+        # Prefer the hosted ``uk-listings-hydrate`` actor when reachable
+        # — it owns the per-portal detail parser, proxy rotation and the
+        # anti-bot moat. Local fetch is a best-effort fallback that will
+        # typically 403 on Zoopla detail pages without the moat.
+        delegated = await maybe_delegate_get_listing_by_url(url=url)
+        if delegated is not None:
+            return delegated
 
         parser = {
             "rightmove": _rm_scraper.parse_detail_page,
@@ -770,6 +801,20 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
     )
 
     async def _sold_prices(postcode: str) -> dict[str, Any]:
+        from uk_property_agent.apify_mode import (
+            maybe_delegate_sold_prices_for_postcode,
+        )
+
+        # The hosted ``uk-sold-prices`` actor applies the same PPD
+        # lookup + per-postcode concurrency + retry with exponential
+        # backoff that we do locally, but from a residential-proxy IP
+        # with more Land-Registry retries budgeted. Prefer it when
+        # available so repeated AVM turns don't hammer the same
+        # land-registry endpoint from the agent host.
+        delegated = await maybe_delegate_sold_prices_for_postcode(postcode=postcode)
+        if delegated is not None:
+            return delegated
+
         client = ctx.land_registry_factory()
         async with client:
             rows = await client.search_by_postcode(postcode, expand=True)
@@ -848,32 +893,53 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
         )
     )
 
-    if ctx.epc_factory is not None:
-        epc_factory = ctx.epc_factory
-
-        async def _epc_search(postcode: str, size: int = 50) -> dict[str, Any]:
-            client = epc_factory()
-            async with client:
-                page = await client.search_domestic(postcode=postcode, size=size)
-            return {
-                "postcode": postcode,
-                "count": len(page.rows),
-                "next_search_after": page.next_search_after,
-                "rows": [row.model_dump(mode="json", exclude_none=True) for row in page.rows],
-            }
-
-        tools.append(
-            StructuredTool.from_function(
-                name="epc_certificates_for_postcode",
-                description=(
-                    "Return domestic EPC certificates registered at a UK postcode. "
-                    "Requires EPC_AUTH_EMAIL / EPC_AUTH_TOKEN env vars - if those "
-                    "aren't set this tool won't be available."
-                ),
-                args_schema=EPCSearchArgs,
-                coroutine=_epc_search,
-            )
+    async def _epc_search(postcode: str, size: int = 50) -> dict[str, Any]:
+        from uk_property_agent.apify_mode import (
+            maybe_delegate_epc_certificates_for_postcode,
         )
+
+        # The hosted ``epc-ct-ppd-unified`` actor ships with EPC creds
+        # baked in as actor secrets, so delegation lets the agent reach
+        # the EPC register without the user having to set
+        # EPC_AUTH_EMAIL / EPC_AUTH_TOKEN locally.
+        delegated = await maybe_delegate_epc_certificates_for_postcode(
+            postcode=postcode, size=size
+        )
+        if delegated is not None:
+            return delegated
+
+        if ctx.epc_factory is None:
+            raise ValueError(
+                "epc_certificates_for_postcode needs either EPC_AUTH_EMAIL + "
+                "EPC_AUTH_TOKEN set locally or a configured "
+                "epc-ct-ppd-unified Apify delegation (set APIFY_API_TOKEN + "
+                "APIFY_USERNAME or APIFY_ACTOR_EPC_CT_PPD_UNIFIED)."
+            )
+
+        client = ctx.epc_factory()
+        async with client:
+            page = await client.search_domestic(postcode=postcode, size=size)
+        return {
+            "postcode": postcode,
+            "count": len(page.rows),
+            "next_search_after": page.next_search_after,
+            "rows": [row.model_dump(mode="json", exclude_none=True) for row in page.rows],
+        }
+
+    tools.append(
+        StructuredTool.from_function(
+            name="epc_certificates_for_postcode",
+            description=(
+                "Return domestic EPC certificates registered at a UK "
+                "postcode from the Open Data Communities EPC register. "
+                "Requires either EPC_AUTH_EMAIL / EPC_AUTH_TOKEN set "
+                "locally or a reachable epc-ct-ppd-unified Apify "
+                "delegation (the actor ships with EPC credentials)."
+            ),
+            args_schema=EPCSearchArgs,
+            coroutine=_epc_search,
+        )
+    )
 
     async def _crime_near(lat: float, lng: float, months_back: int = 3) -> dict[str, Any]:
         client = ctx.police_factory()
@@ -1105,6 +1171,10 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
         radius_m: float = 500.0,
         limit: int = 15,
     ) -> dict[str, Any]:
+        from uk_property_agent.apify_mode import (
+            maybe_delegate_amenities_near_postcode,
+        )
+
         cats: list[AmenityCategory] = []
         for raw in categories or []:
             try:
@@ -1113,6 +1183,21 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
                 continue
         if not cats:
             cats = [AmenityCategory.RAIL_STATION]
+        category_values = [c.value for c in cats]
+
+        # Prefer the hosted ``uk-location-intel`` actor when reachable
+        # — the actor runs the same Overpass query from a residential
+        # proxy (so repeated free-tier agent turns don't get us
+        # temp-banned from overpass-api.de) and handles the postcode
+        # resolution step internally.
+        delegated = await maybe_delegate_amenities_near_postcode(
+            postcode=postcode,
+            categories=category_values,
+            radius_m=radius_m,
+            limit=limit,
+        )
+        if delegated is not None:
+            return delegated
 
         pc_client = ctx.postcodes_factory()
         async with pc_client:
@@ -1135,7 +1220,7 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
             "postcode": lookup.postcode,
             "origin": {"lat": lookup.latitude, "lng": lookup.longitude},
             "radius_m": radius_m,
-            "categories": [c.value for c in cats],
+            "categories": category_values,
             "count": len(hits),
             "items": [h.model_dump(mode="json", exclude_none=True) for h in trimmed],
             "truncated": len(hits) > len(trimmed),
@@ -1565,6 +1650,10 @@ def build_tools(ctx: ToolContext | None = None) -> list[StructuredTool]:
                 coroutine=_landlord_network_for_company,
             )
         )
+
+    from uk_property_agent.apify_tools import build_apify_only_tools
+
+    tools.extend(build_apify_only_tools())
 
     for tool in tools:
         tool.handle_tool_error = _format_tool_error

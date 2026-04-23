@@ -292,7 +292,7 @@ def _safe_postcode_area(raw: str | None) -> str:
 def format_report_markdown(report: EvalReport) -> str:
     """Render ``report`` as a human-readable Markdown table.
 
-    Useful in CI and for the STATUS.md rollups. Not used by any production
+    Useful in CI and for human-readable rollups. Not used by any production
     code path — the structured :class:`EvalReport` is the authoritative
     output.
     """
