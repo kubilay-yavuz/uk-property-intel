@@ -1,52 +1,101 @@
 # uk-property-intel
 
-**Public monorepo of Python packages for UK property intelligence.**
+> A Python monorepo for UK property intelligence — scrapers, government-API clients, geospatial tools, an AVM, and a natural-language agent that ties them all together.
 
-Eight packages, each publishable as a standalone PyPI wheel, sharing a single toolchain (`uv`, `ruff`, `mypy`, `pytest`) and a single LICENSE.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![uv](https://img.shields.io/badge/packaging-uv-261230.svg?logo=astral)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/badge/lint-ruff-000000.svg?logo=ruff)](https://github.com/astral-sh/ruff)
+[![Tests](https://img.shields.io/badge/tests-1326%20passing-brightgreen.svg)](#testing)
 
-The consumers of these packages — the MCP servers (`zoopla-mcp`, `rightmove-mcp`, `onthemarket-mcp`) and the private Apify actors repo (`uk-property-apify`) — live in their own sibling repositories and depend on these packages via path or PyPI references.
+Eight independently publishable packages, one `uv` workspace, one MIT LICENSE, one Python toolchain (`ruff` + `mypy` + `pytest`).
+
+Downstream consumers — the MCP servers ([`zoopla-mcp`](https://github.com/kubi-yavuz/zoopla-mcp), [`rightmove-mcp`](https://github.com/kubi-yavuz/rightmove-mcp), [`onthemarket-mcp`](https://github.com/kubi-yavuz/onthemarket-mcp)) and the Apify actor fleet — live in sibling repositories and depend on these packages.
 
 ---
 
 ## Packages
 
-| Directory | PyPI name | What it does | Status |
-|-----------|-----------|--------------|--------|
-| [`packages/scrapers`](packages/scrapers)           | `uk-property-scrapers`     | Pure-Python parsers for Zoopla / Rightmove / OnTheMarket (search + detail + **agent-branch + branch-stock**) and auction houses. Browser-agnostic: takes HTML, returns Pydantic models. Owns the canonical `Listing`, `AuctionLot`, `AgentProfile` / `BranchTeamMember`, `InquiryRequest` / `ViewingRequest` / `FreeValuationRequest` / `InquiryResult`, and `ListingSnapshot` / `ListingChangeEvent` / `SnapshotDiff` schemas shared across every surface. | Alpha |
-| [`packages/apis`](packages/apis)                   | `uk-property-apis`         | Typed async clients for 20+ UK government / public APIs: EPC Open Data, HMLR Price Paid, Postcodes.io, data.police.uk, planning.data.gov.uk (+ IDOX HTML / ArcGIS planning), Environment Agency Flood, Companies House, ONS + ONS Nomis, VOA council tax, DEFRA AURN air quality, BGS + radon, Natural England, elevation, coastal erosion, Contracts Finder + Find a Tender, and the four auction-house catalogues. Retries, pagination, Pydantic models. | Alpha |
-| [`packages/listings`](packages/listings)           | `uk-property-listings`     | Shared search-URL builders (Zoopla / Rightmove / OnTheMarket), an httpx-only `SimpleCrawler`, and `crawl_*_search` + `crawl_*_urls` pagination / hydration helpers that wire any `CrawlerProtocol` to the `uk-property-scrapers` parsers. | Alpha |
-| [`packages/geo`](packages/geo)                     | `uk-property-geo`          | Geospatial primitives: haversine distance, amenity search via Overpass, postcode → coordinates. OSRM/OTP isochrones + H3 grid planned. | Pre-alpha |
-| [`packages/data`](packages/data)                   | `uk-property-data`         | Static data loaders for UK government datasets: IMD 2019, Census 2021, MHCLG household projections, UKCP18 climate projections, broadband + elevation grids. | Alpha |
-| [`packages/avm`](packages/avm)                     | `uk-property-avm`          | Automated valuation model — hedonic regression, quantile hedonic, LightGBM ensemble + ONS HPI adjuster, neighbourhood features. Trained on PPD + EPC + listings. | Alpha |
-| [`packages/agent`](packages/agent)                 | `uk-property-agent`        | LangGraph agent with StructuredTool access to every client above. Tools: `lookup_postcode`, `sold_prices_for_postcode`, `crime_stats_near`, `flood_risk_at`, `amenities_near_postcode`, `epc_certificates_for_postcode`, `estimate_property_value`. | Alpha |
-| [`packages/apify_client`](packages/apify_client)   | `uk-property-apify-client` | Typed client for delegating UK-property tool calls to the hosted Apify actor fleet (A1..A14). Thin layer on top of `apify-client` with env-based configuration so MCPs and agent tools can route paying traffic through the moat actors without changing their public surface. | Alpha |
+| Directory | PyPI name | What it does |
+|-----------|-----------|--------------|
+| [`packages/scrapers`](packages/scrapers)           | `uk-property-scrapers`     | Pure-Python parsers for Zoopla / Rightmove / OnTheMarket (search, detail, agent-branch, branch-stock) and the four major UK auction houses. Browser-agnostic: HTML in, Pydantic models out. Owns the canonical `Listing`, `AuctionLot`, `AgentProfile`, inquiry/viewing/valuation and change-snapshot schemas. |
+| [`packages/apis`](packages/apis)                   | `uk-property-apis`         | Typed async clients for 20+ UK government and public APIs: EPC Open Data, HMLR Price Paid, Postcodes.io, data.police.uk, planning.data.gov.uk (plus IDOX / ArcGIS planning), Environment Agency Flood, Companies House, ONS + ONS Nomis, VOA council tax, DEFRA AURN air quality, BGS + radon, Natural England, elevation, coastal erosion, Contracts Finder + Find a Tender, and auction-house catalogues. Retries, pagination, and Pydantic models throughout. |
+| [`packages/listings`](packages/listings)           | `uk-property-listings`     | Shared search-URL builders (Zoopla / Rightmove / OnTheMarket), an httpx-only `SimpleCrawler`, and `crawl_*_search` / `crawl_*_urls` pagination + hydration helpers typed against a `CrawlerProtocol`. |
+| [`packages/geo`](packages/geo)                     | `uk-property-geo`          | Geospatial primitives: haversine distance, amenity search via OSM Overpass, postcode → coordinates. OSRM / OTP isochrones and H3 grids on the roadmap. |
+| [`packages/data`](packages/data)                   | `uk-property-data`         | Static data loaders for UK government datasets: IMD 2019, Census 2021, MHCLG household projections, UKCP18 climate projections, broadband + elevation grids. |
+| [`packages/avm`](packages/avm)                     | `uk-property-avm`          | Automated valuation model — hedonic regression, quantile hedonic, LightGBM ensemble with ONS HPI adjuster and neighbourhood features. Trained on PPD + EPC + listings. |
+| [`packages/agent`](packages/agent)                 | `uk-property-agent`        | LangGraph ReAct agent with 23 `StructuredTool`s bound across every client above. Ships a CLI (`property-agent ask` / `chat` / `serve`) that routes across Anthropic, OpenAI, and Gemini. |
+| [`packages/apify_client`](packages/apify_client)   | `uk-property-apify-client` | Typed client for delegating tool calls to the hosted Apify actor fleet. Thin layer on top of `apify-client` with env-based configuration. |
+
+Every package is pre-alpha to alpha — APIs may still shift. Version pinning is recommended.
 
 ---
 
 ## Quickstart
 
 ```bash
-git clone git@github.com:kubilayyavuz/uk-property-intel.git
+git clone https://github.com/kubi-yavuz/uk-property-intel.git
 cd uk-property-intel
 uv sync
 uv run pytest -q
 ```
 
-Expect ~1250 mocked tests across the 8 packages, all green (`uv run pytest --collect-only -q`).
+The workspace uses [`uv`](https://docs.astral.sh/uv/). Python 3.12+ is required.
+
+### A 60-second tour
+
+Look up a postcode, fetch a sold-price history, and ask the agent a question:
+
+```python
+import asyncio
+from uk_property_apis import PostcodesIOClient, PricePaidClient
+
+async def main() -> None:
+    async with PostcodesIOClient() as pc:
+        info = await pc.lookup("CB1 2JW")
+        print(info.latitude, info.longitude, info.admin_district)
+
+    async with PricePaidClient() as ppd:
+        sales = await ppd.for_postcode("CB1 2JW", limit=10)
+        for s in sales:
+            print(s.date, s.price, s.paon, s.street)
+
+asyncio.run(main())
+```
+
+Parse a Zoopla search page you've already fetched (HTML-in, data-out):
+
+```python
+from uk_property_scrapers.zoopla import parse_zoopla_search
+
+listings = parse_zoopla_search(html)
+for lot in listings:
+    print(lot.price_gbp, lot.bedrooms, lot.address)
+```
+
+Run the agent against a real LLM (requires `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`):
+
+```bash
+uv run property-agent ask "Tell me about CB1 2JW"
+uv run property-agent ask --stream "Best 3 family homes in Cambridge under £800k"
+uv run property-agent chat       # interactive REPL with per-session memory
+```
+
+See each package's `README.md` for full usage.
 
 ### Is the data actually coming in?
 
-Mocked tests prove the code is consistent with expected API shapes. To prove real APIs return real data, run the live smoke harness:
+Mocked tests prove the code is consistent with expected API shapes. To prove the real APIs return real data, use the live smoke harness:
 
 ```bash
-uv run python scripts/smoke.py                  # all probes (needs network)
-uv run python scripts/smoke.py postcodes overpass ons    # subset by probe id
-uv run python scripts/smoke.py --help           # list available probe ids
+uv run python scripts/smoke.py                              # all probes (needs network)
+uv run python scripts/smoke.py postcodes overpass ons       # subset by probe id
+uv run python scripts/smoke.py --help                       # list available probe ids
 ```
 
-Covers: Postcodes.io, HMLR PPD, data.police.uk, Environment Agency Flood, planning.data.gov.uk, OSM Overpass, EPC Open Data, Companies House, ONS Nomis, Rightmove / Zoopla / OnTheMarket parsers (against bundled HTML fixtures), live HTTP probes of the listing portals (expect Cloudflare 403s), and an end-to-end postcode → amenity chain through the agent's tool layer.
+Covered probes: Postcodes.io, HMLR PPD, data.police.uk, Environment Agency Flood, planning.data.gov.uk, OSM Overpass, EPC Open Data, Companies House, ONS Nomis, Rightmove / Zoopla / OnTheMarket parsers (against bundled HTML fixtures), live HTTP probes of the listing portals (expect Cloudflare 403s), and an end-to-end postcode → amenity chain through the agent's tool layer.
 
-Prints `[OK] <probe> — <summary>` or `[FAIL] <probe> — <reason>` per probe, plus a final green / credential-skip / fail tally.
+Each probe prints `[OK] <probe> — <summary>` or `[FAIL] <probe> — <reason>`, with a final green / credential-skip / fail tally.
 
 ---
 
@@ -64,40 +113,43 @@ uk-property-intel/
 │   ├── agent/          → uk-property-agent
 │   └── apify_client/   → uk-property-apify-client
 ├── scripts/
-│   └── smoke.py        ← live integration harness (no mocks)
-├── README.md           ← this file
-├── LICENSE             ← MIT
+│   ├── smoke.py                     ← live integration harness (no mocks)
+│   ├── refresh_fixtures.py          ← capture fresh Rightmove/Zoopla/OTM HTML
+│   ├── check_fixture_freshness.py   ← drift audit used by CI
+│   ├── capture_agent_fixtures.py
+│   └── run_hosted_actors.py
+├── .github/workflows/  ← fixture-freshness cron + parser canary
 ├── pyproject.toml      ← uv workspace over packages/*
-└── .python-version     ← 3.12
+├── .python-version     ← 3.12
+├── LICENSE             ← MIT
+└── README.md
 ```
 
-Each package under `packages/*` has its own `pyproject.toml`, `README.md`, `src/`, and (most of them) a `tests/` directory.
+Every package has its own `pyproject.toml`, `README.md`, `src/` tree, and (for most) a `tests/` directory.
 
 ---
 
 ## Sibling repositories
 
-This monorepo is the "upstream" that three standalone repos depend on:
+This monorepo is the "upstream" that four standalone repos depend on:
 
 | Sibling repo | Visibility | Depends on | Purpose |
-|--------------|-----------|------------|---------|
-| `zoopla-mcp`         | public  | `uk-property-scrapers[crawler]` | Claude Desktop / Cursor MCP server for Zoopla |
-| `rightmove-mcp`      | public  | `uk-property-scrapers[crawler]` | Same, Rightmove |
-| `onthemarket-mcp`    | public  | `uk-property-scrapers[crawler]` | Same, OnTheMarket |
-| `uk-property-apify`  | private | `uk-property-scrapers[crawler]`, `uk-property-apis` | Apify actors (Zoopla / Rightmove / OTM listings + EPC-PPD unified + future paid scrapers) |
+|--------------|------------|------------|---------|
+| [`zoopla-mcp`](https://github.com/kubi-yavuz/zoopla-mcp)         | Public  | `uk-property-scrapers[crawler]` | MCP server for Zoopla (Claude Desktop / Cursor) |
+| [`rightmove-mcp`](https://github.com/kubi-yavuz/rightmove-mcp)   | Public  | `uk-property-scrapers[crawler]` | MCP server for Rightmove |
+| [`onthemarket-mcp`](https://github.com/kubi-yavuz/onthemarket-mcp) | Public  | `uk-property-scrapers[crawler]` | MCP server for OnTheMarket |
+| `uk-property-apify`  | Private | `uk-property-scrapers[crawler]`, `uk-property-apis` | Hosted Apify actors (Zoopla / Rightmove / OTM + unified EPC+PPD) with the anti-bot, proxy, and Playwright layer. |
 
-Today those siblings depend on this monorepo via local path references (see `pyproject.toml` in each sibling). Once the 8 packages publish to PyPI, the siblings switch to pinned PyPI versions.
+Today the siblings depend on this monorepo via local path references. Once the eight packages publish to PyPI, those references switch to pinned versions.
 
 ---
 
 ## Testing
 
 ```bash
-# Full mocked test suite (~1250 tests, <15s):
-uv run pytest -q
+uv run pytest -q                              # full mocked suite (1326 tests, <15s)
 
-# Scoped per-package:
-uv run pytest packages/scrapers -q
+uv run pytest packages/scrapers -q            # scoped per package
 uv run pytest packages/apis -q
 uv run pytest packages/listings -q
 uv run pytest packages/geo -q
@@ -106,12 +158,27 @@ uv run pytest packages/avm -q
 uv run pytest packages/agent -q
 uv run pytest packages/apify_client -q
 
-# Lint:
-uv run ruff check .
+uv run ruff check .                           # lint
+uv run mypy .                                 # type-check
 
-# Live smoke (hits real APIs):
-uv run python scripts/smoke.py
+uv run python scripts/smoke.py                # hit real APIs
 ```
+
+The test count is produced by `uv run pytest --collect-only -q`.
+
+### Continuous integration
+
+[`.github/workflows/fixture-freshness.yml`](.github/workflows/fixture-freshness.yml) runs monthly and on any fixture-related PR. It audits the pinned Rightmove / Zoopla / OnTheMarket / Allsop fixtures against a quarterly freshness target and re-runs every scraper parser test against the committed fixtures as a drift canary. Fixture capture itself is a manual local workflow (`uv run scripts/refresh_fixtures.py`) because all three portals sit behind Cloudflare and will challenge headless CI runners.
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome — especially bug reports for the scrapers when portal markup drifts, and new government-API clients under `packages/apis`. Please:
+
+1. Run `uv run ruff check . && uv run pytest -q` before opening a PR.
+2. For new parsers, include an HTML fixture under `packages/scrapers/tests/fixtures/` with a dated filename (see the fixture-freshness workflow for the naming convention).
+3. Keep new public surface typed — the whole monorepo is `mypy --strict`.
 
 ---
 
